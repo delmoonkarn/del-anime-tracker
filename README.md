@@ -4,11 +4,12 @@ Personal anime tracker — schedule your watch list by season, discover what's a
 
 ## Stack
 
-- **Next.js 14** (App Router) + React 18 + TypeScript
-- **Tailwind CSS** with a custom cyber palette (deep navy + electric cyan/magenta/purple)
-- **SQLite** (via `better-sqlite3`) — `data/anime-tracker.db`
-- **ExcelJS** — `.xlsx` import/export for both schedule and collection
-- **Lucide React** — icons
+| Layer        | Technology                                              |
+|--------------|---------------------------------------------------------|
+| Framework    | Next.js 14 (App Router), React 18, TypeScript           |
+| Styling      | Tailwind CSS                                            |
+| Persistence  | SQLite via `better-sqlite3` — `data/anime-tracker.db`   |
+| Spreadsheets | ExcelJS (`.xlsx` import / export)                       |
 
 ## Run it
 
@@ -27,12 +28,11 @@ Or double-click **`run.bat`**.
 
 ## Features
 
-- **Schedule** — group anime by day of week, set Thai broadcast time + platform link, today's day is highlighted, aired entries strike through
+- **Schedule** — group anime by day of week, set broadcast time + platform link, today's day is highlighted, aired entries strike through
 - **Discover by Season** — pick any Winter/Spring/Summer/Fall + year, browse top anime, filter by tags, search within results, LRU-cache of last 4 selections
-- **H** — separate page, separate DB table (`h_favorites`), independent sort/filter prefs
 - **Collection** — Favorites + Interested sections, sort by released date / added date / title / score, tag filter
 - **Import/Export `.xlsx`** — schedule and collection each have their own format with `=IMAGE()` formulas and Thai day colors
-- **Confirmation dialogs** styled to match the theme (no browser popups)
+
 
 ## Project layout
 
