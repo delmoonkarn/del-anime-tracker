@@ -12,13 +12,17 @@ Personal anime tracker — schedule your watch list by season, discover what's a
 
 ## Run it
 
+Easiest — double-click **`ATracker.exe`** (Windows, included in the repo). It runs the dev server and opens your browser at <http://localhost:3000> automatically. Closing the console shuts everything down cleanly.
+
+Equivalent via terminal:
+
 ```bash
 # first time
 npm install
 npm run dev
 ```
 
-Or just double-click **`run.bat`** (Windows). Open <http://localhost:3000>.
+Or double-click **`run.bat`**.
 
 ## Features
 
