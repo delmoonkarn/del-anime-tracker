@@ -73,20 +73,12 @@ data/                          # SQLite DB lives here (gitignored)
 
 ## Database (SQLite)
 
-`data/anime-tracker.db` — open in [DB Browser for SQLite](https://sqlitebrowser.org/) to inspect:
+`data/anime-tracker.db` 
 
-| Table | What |
-|---|---|
-| `seasons` | id, name, created_at |
-| `anime_entries` | FK season_id + anilist_id, titles, image, day, time, platform, status, added_at |
-| `collection` | (anilist_id, section) PK + titles, image, tags, format, eps, score, start date, added_at |
-| `hentai_favorites` | same shape as `collection` but no section (separate table by design) |
-| `discover_cache` | LRU cache (up to 4) of fetched season grids |
-| `kv_store` | `activeSeasonId`, `tags`, `hentai-prefs` |
 
 All writes are debounced 300 ms on the client side, sent as PUT/POST to `/api/storage/<key>`, and applied to the DB in a single SQLite transaction. Atomic writes; crash-safe via WAL.
 
-**Backup / restore:** copy the `data/` folder. Drop it back in to restore. Everything you've added — schedule, collection, hentai favorites, discover cache, prefs — lives in `anime-tracker.db` plus its two WAL sidecar files.
+**Backup / restore:** copy the `data/` folder. Drop it back in to restore. Everything you've added — schedule, collection, discover cache, prefs — lives in `anime-tracker.db` plus its two WAL sidecar files.
 
 ## Credits
 
