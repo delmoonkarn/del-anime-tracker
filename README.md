@@ -24,6 +24,8 @@ npm run dev
 
 Or double-click **`run.bat`**.
 
+> **Requires** Node.js 18+ on PATH (download: <https://nodejs.org/>). Both the prebuilt `.exe` and the dev server spawn `npm`, so Node has to be installed system-wide.
+
 ## Features
 
 - **Schedule** — group anime by day of week, set Thai broadcast time + platform link, today's day is highlighted, aired entries strike through
@@ -84,6 +86,8 @@ data/                          # SQLite DB lives here (gitignored)
 | `kv_store` | `activeSeasonId`, `tags`, `hentai-prefs` |
 
 All writes are debounced 300 ms on the client side, sent as PUT/POST to `/api/storage/<key>`, and applied to the DB in a single SQLite transaction. Atomic writes; crash-safe via WAL.
+
+**Backup / restore:** copy the `data/` folder. Drop it back in to restore. Everything you've added — schedule, collection, hentai favorites, discover cache, prefs — lives in `anime-tracker.db` plus its two WAL sidecar files.
 
 ## Credits
 
