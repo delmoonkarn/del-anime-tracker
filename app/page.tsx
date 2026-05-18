@@ -125,6 +125,11 @@ export default function HomePage() {
       // schedule — past seasons are finished (nothing to refresh) and future
       // seasons haven't started, so the API calls would be wasted.
       void refreshAiringSchedules(initial);
+      // One-shot metadata backfill: catches entries (across ALL seasons)
+      // imported before the day/time/totalEpisodes auto-derive shipped.
+      // Self-throttles via the "needs filling" check, so it's a no-op
+      // once everything's clean.
+      void backfillScheduleMetadata(initial);
     })();
     // discoverDefaultRef is memoized once; safe to omit from deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -199,6 +204,85 @@ export default function HomePage() {
       console.info(`[airing] refreshed ${ids.length} schedule entries`);
     } catch (err) {
       console.warn('[airing] refresh failed:', err);
+    }
+  };
+
+  /** Fills in missing `day` / `time` / `totalEpisodes` on any schedule entry
+   *  that has an AniList ID — runs across every season, unlike the airing
+   *  refresh which is scoped to the current calendar season. Naturally
+   *  idempotent: once an entry's fields are populated the next call won't
+   *  pick it up. Doesn't touch `nextAiringEpisode` / `nextAiringAt` (those
+   *  are owned by `refreshAiringSchedules`). */
+  const backfillScheduleMetadata = async (snapshot: AppState) => {
+    const candidates = snapshot.seasons.flatMap((s) =>
+      s.animes.filter(
+        (a) =>
+          a.anilistId > 0 &&
+          (a.day == null ||
+            !a.time ||
+            a.totalEpisodes == null ||
+            a.nextAiringAt == null),
+      ),
+    );
+    if (candidates.length === 0) return;
+    const ids = Array.from(new Set(candidates.map((c) => c.anilistId)));
+    const BATCH = 50;
+    const DELAY_MS = 800;
+    try {
+      const [{ getAnimesByIds }, utils] = await Promise.all([
+        import('@/lib/anilist'),
+        import('@/lib/utils'),
+      ]);
+      const { deriveDayTimeFromAiringAt, deriveDayFromStartDate } = utils;
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const chunk = ids.slice(i, i + BATCH);
+        try {
+          const media = await getAnimesByIds(chunk);
+          const byId = new Map(media.map((m) => [m.id, m]));
+          setState((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              seasons: prev.seasons.map((s) => ({
+                ...s,
+                animes: s.animes.map((a) => {
+                  const m = byId.get(a.anilistId);
+                  if (!m) return a;
+                  const fromAiring = deriveDayTimeFromAiringAt(
+                    m.nextAiringEpisode?.airingAt ?? null,
+                  );
+                  const dayHint =
+                    fromAiring?.day ?? deriveDayFromStartDate(m.startDate);
+                  // Each field is only filled when currently missing — never
+                  // clobber user-edited values.
+                  return {
+                    ...a,
+                    day: a.day ?? dayHint ?? null,
+                    time: a.time || fromAiring?.time || '',
+                    totalEpisodes: a.totalEpisodes ?? m.episodes ?? undefined,
+                    nextAiringEpisode:
+                      a.nextAiringEpisode ??
+                      m.nextAiringEpisode?.episode ??
+                      undefined,
+                    nextAiringAt:
+                      a.nextAiringAt ??
+                      m.nextAiringEpisode?.airingAt ??
+                      undefined,
+                  };
+                }),
+              })),
+            };
+          });
+        } catch (err) {
+          console.warn(`[backfill] batch starting at ${i} failed:`, err);
+        }
+        if (i + BATCH < ids.length) {
+          await new Promise((r) => setTimeout(r, DELAY_MS));
+        }
+      }
+      console.info(`[backfill] filled metadata for up to ${ids.length} entries`);
+    } catch (err) {
+      console.warn('[backfill] failed:', err);
     }
   };
 

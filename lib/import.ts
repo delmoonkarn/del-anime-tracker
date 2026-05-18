@@ -6,8 +6,40 @@ import type {
   DayOfWeek,
   ReleaseDate,
   Season,
+  WatchStatus,
 } from './types';
-import { newId } from './utils';
+import {
+  WATCH_STATUSES,
+  WATCH_STATUS_LABELS,
+  deriveDayFromStartDate,
+  deriveDayTimeFromAiringAt,
+  newId,
+} from './utils';
+
+// Build a reverse-lookup once: accepts either the human label ("Watching")
+// or the raw enum value ("WATCHING"), case-insensitive, since users may
+// hand-edit the column.
+const WATCH_STATUS_FROM_TEXT: Record<string, WatchStatus> = (() => {
+  const m: Record<string, WatchStatus> = {};
+  for (const s of WATCH_STATUSES) {
+    m[s.toLowerCase()] = s;
+    m[WATCH_STATUS_LABELS[s].toLowerCase()] = s;
+  }
+  return m;
+})();
+
+function parseWatchStatus(val: unknown): WatchStatus | undefined {
+  if (val == null || val === '') return undefined;
+  const k = String(val).trim().toLowerCase();
+  return WATCH_STATUS_FROM_TEXT[k];
+}
+
+function parseNonNegInt(val: unknown): number | undefined {
+  if (val == null || val === '') return undefined;
+  const n = typeof val === 'number' ? val : Number(String(val).trim());
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return Math.floor(n);
+}
 
 const DAY_FROM_INDEX: DayOfWeek[] = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const VALID_DAYS = new Set<DayOfWeek>(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
@@ -125,6 +157,11 @@ export async function importWorkbook(
       const time = parseTime(row.getCell(4).value);
       const { platform, platformUrl } = parsePlatform(row.getCell(5));
       const status = asString(row.getCell(6).value);
+      // G/H/I are watch-tracker fields added in the schedule-card upgrade.
+      // Old workbooks lack them entirely → these helpers return undefined.
+      const watchStatus = parseWatchStatus(row.getCell(7).value);
+      const episodesWatched = parseNonNegInt(row.getCell(8).value);
+      const totalEpisodes = parseNonNegInt(row.getCell(9).value);
 
       animes.push({
         id: newId(),
@@ -137,6 +174,9 @@ export async function importWorkbook(
         platform,
         platformUrl,
         status,
+        watchStatus,
+        episodesWatched,
+        totalEpisodes,
         addedAt: Date.now(),
       });
     });
@@ -176,6 +216,29 @@ export async function importWorkbook(
           e.title = primary;
           e.titleEnglish = eng;
           e.imageUrl = m.coverImage.large || m.coverImage.medium || '';
+          // Fill missing watch-tracker fields from AniList. Anything the
+          // workbook already supplied (column I, or a re-import after a
+          // previous export) takes precedence — only undefined slots are
+          // filled, so user-edited values are preserved.
+          if (e.totalEpisodes == null && m.episodes != null) {
+            e.totalEpisodes = m.episodes;
+          }
+          if (e.nextAiringEpisode == null && m.nextAiringEpisode?.episode != null) {
+            e.nextAiringEpisode = m.nextAiringEpisode.episode;
+          }
+          if (e.nextAiringAt == null && m.nextAiringEpisode?.airingAt != null) {
+            e.nextAiringAt = m.nextAiringEpisode.airingAt;
+          }
+          // Derive day/time when the workbook didn't supply them. Prefer the
+          // airing timestamp (gives both day AND time in user-local TZ);
+          // fall back to startDate for the day when only that's available.
+          const fromAiring = deriveDayTimeFromAiringAt(m.nextAiringEpisode?.airingAt ?? null);
+          if (e.day == null && fromAiring) e.day = fromAiring.day;
+          if (e.day == null) {
+            const sdDay = deriveDayFromStartDate(m.startDate);
+            if (sdDay) e.day = sdDay;
+          }
+          if ((!e.time || e.time === '') && fromAiring) e.time = fromAiring.time;
           matchedCount++;
         });
       } catch (err) {

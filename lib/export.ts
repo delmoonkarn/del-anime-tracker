@@ -6,7 +6,7 @@ import type {
   DayOfWeek,
   Season,
 } from './types';
-import { seasonRank } from './utils';
+import { WATCH_STATUS_LABELS, seasonRank } from './utils';
 
 const FONT_NAME = 'Arial';
 const HEADER_FILL = 'FFB7B7B7';
@@ -30,7 +30,9 @@ function rowFillFor(day: DayOfWeek | null): string {
   return day ? DAY_FILLS[day] : ROW_FILL;
 }
 
-const COLUMN_WIDTHS = [9.63, 34.38, 10.5, 8.88, 14.75, 12.63];
+// A: image, B: title, C: day, D: time, E: link, F: status-note,
+// G: watch-status, H: watched, I: total-eps
+const COLUMN_WIDTHS = [9.63, 34.38, 10.5, 8.88, 14.75, 12.63, 13, 9, 9];
 const HEADER_ROW_HEIGHT = 15.75;
 const DATA_ROW_HEIGHT = 75;
 
@@ -76,7 +78,19 @@ function applyColumnWidths(ws: ExcelJSNamespace.Worksheet): void {
 
 function writeHeader(ws: ExcelJSNamespace.Worksheet): void {
   ws.getRow(1).height = HEADER_ROW_HEIGHT;
-  const headers: (string | null)[] = [null, 'Title', 'Day', 'Time', 'Link', null];
+  // F (status note) intentionally left blank in the header — matches the
+  // original workbook format. G/H/I are new and labeled.
+  const headers: (string | null)[] = [
+    null,
+    'Title',
+    'Day',
+    'Time',
+    'Link',
+    null,
+    'Watch status',
+    'Watched',
+    'Total eps',
+  ];
   const thin = { style: 'thin' as const };
   const border = { top: thin, bottom: thin, left: thin, right: thin };
 
@@ -87,9 +101,9 @@ function writeHeader(ws: ExcelJSNamespace.Worksheet): void {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } } as ExcelJSNamespace.FillPattern;
     cell.alignment = {
       vertical: 'middle',
-      horizontal: i >= 2 && i <= 4 ? 'center' : undefined,
+      horizontal: i >= 2 && i <= 4 ? 'center' : i >= 6 ? 'center' : undefined,
     };
-    if (i >= 1 && i <= 4) cell.border = border;
+    if ((i >= 1 && i <= 4) || (i >= 6 && i <= 8)) cell.border = border;
   });
 }
 
@@ -144,6 +158,16 @@ function styleDataRow(
   const f = ws.getCell(`F${r}`);
   f.font = { name: FONT_NAME, size: 10 };
   f.alignment = { vertical: 'middle' };
+
+  // G/H/I: watch tracker cells. Match day-fill so they read as part of the
+  // row, with a thin bottom border to separate rows.
+  for (const col of ['G', 'H', 'I'] as const) {
+    const c = ws.getCell(`${col}${r}`);
+    c.fill = rowFill;
+    c.font = { name: FONT_NAME, size: 10 };
+    c.alignment = { vertical: 'middle', horizontal: 'center' };
+    c.border = { bottom: thin };
+  }
 }
 
 function writeSeasonSheet(wb: ExcelJSNamespace.Workbook, season: Season): void {
@@ -191,6 +215,19 @@ function writeSeasonSheet(wb: ExcelJSNamespace.Workbook, season: Season): void {
     }
 
     if (anime.status) ws.getCell(`F${r}`).value = anime.status;
+
+    // G: watch status as a human label (e.g. "Watching"); H/I: numeric.
+    // Cells left empty when the corresponding entry field is unset, so the
+    // workbook stays clean for shows the user hasn't engaged with.
+    if (anime.watchStatus) {
+      ws.getCell(`G${r}`).value = WATCH_STATUS_LABELS[anime.watchStatus];
+    }
+    if (anime.episodesWatched != null) {
+      ws.getCell(`H${r}`).value = anime.episodesWatched;
+    }
+    if (anime.totalEpisodes != null) {
+      ws.getCell(`I${r}`).value = anime.totalEpisodes;
+    }
   });
 }
 

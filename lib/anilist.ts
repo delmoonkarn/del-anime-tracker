@@ -72,6 +72,9 @@ const MATCH_FIELDS = `{
   id
   title { romaji english native }
   coverImage { large medium }
+  episodes
+  startDate { year month day }
+  nextAiringEpisode { episode airingAt }
 }`;
 
 function buildBatchQuery(count: number): string {
