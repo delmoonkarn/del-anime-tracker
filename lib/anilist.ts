@@ -366,3 +366,43 @@ query ($id: Int) {
   const json = (await res.json()) as { data?: { Media?: AnilistMedia } };
   return json.data?.Media ?? null;
 }
+
+/**
+ * Batched lookup by AniList IDs — used to enrich collection entries with the
+ * full tag list (and other fields) without one HTTP call per show.
+ */
+export async function getAnimesByIds(
+  ids: number[],
+  signal?: AbortSignal,
+): Promise<AnilistMedia[]> {
+  if (ids.length === 0) return [];
+  const query = `
+query ($ids: [Int]) {
+  Page(perPage: 50) {
+    media(id_in: $ids, type: ANIME) {
+      id
+      title { romaji english native }
+      coverImage { large medium }
+      format
+      episodes
+      averageScore
+      description(asHtml: false)
+      tags { name rank isAdult isMediaSpoiler }
+      startDate { year month day }
+    }
+  }
+}`;
+  const res = await fetch(ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ query, variables: { ids } }),
+    signal,
+  });
+  if (!res.ok) {
+    throw new AnilistError(`AniList returned HTTP ${res.status}.`, res.status);
+  }
+  const json = (await res.json()) as {
+    data?: { Page?: { media?: AnilistMedia[] } };
+  };
+  return json.data?.Page?.media ?? [];
+}

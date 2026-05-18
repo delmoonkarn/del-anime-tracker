@@ -18,10 +18,11 @@ export function toDiscoverItem(m: AnilistMedia): DiscoverItem {
   const title = m.title.romaji || m.title.native || m.title.english || `#${m.id}`;
   const english = m.title.english && m.title.english !== title ? m.title.english : undefined;
   const description = m.description ? stripHtml(m.description) : undefined;
+  // Keep the FULL tag list — the card decides how many to display. Filter
+  // out adult/spoiler-flagged tags but keep everything else (sorted by rank).
   const tags = (m.tags ?? [])
     .filter((t) => !t.isAdult && !t.isMediaSpoiler)
     .sort((a, b) => b.rank - a.rank)
-    .slice(0, 5)
     .map((t) => t.name);
   return {
     anilistId: m.id,

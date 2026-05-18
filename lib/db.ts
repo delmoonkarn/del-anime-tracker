@@ -137,6 +137,17 @@ try {
   console.warn('[db] H rename migration skipped:', err);
 }
 
+// Add `tags_full` column to `collection` if it's missing (old DBs).
+try {
+  const cols = db.prepare("PRAGMA table_info(collection)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'tags_full')) {
+    db.exec('ALTER TABLE collection ADD COLUMN tags_full INTEGER NOT NULL DEFAULT 0');
+    console.info('[db] added collection.tags_full column');
+  }
+} catch (err) {
+  console.warn('[db] tags_full migration skipped:', err);
+}
+
 // ---- AppState (seasons + anime entries + activeSeasonId) -----------------
 
 interface SeasonRow {
@@ -256,6 +267,7 @@ interface CollectionRow {
   start_month: number | null;
   start_day: number | null;
   added_at: number;
+  tags_full: number | null;
 }
 
 function rowToCollectionEntry(r: CollectionRow): CollectionEntry {
@@ -276,6 +288,7 @@ function rowToCollectionEntry(r: CollectionRow): CollectionEntry {
     averageScore: r.average_score ?? undefined,
     startDate,
     addedAt: r.added_at,
+    tagsFull: r.tags_full ? true : false,
   };
 }
 
@@ -289,8 +302,8 @@ const writeCollectionTxn = db.transaction((items: CollectionEntry[]) => {
   const ins = db.prepare(`
     INSERT INTO collection
       (anilist_id, section, title, title_english, image_url, description,
-       tags_json, format, episodes, average_score, start_year, start_month, start_day, added_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       tags_json, format, episodes, average_score, start_year, start_month, start_day, added_at, tags_full)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const e of items) {
     ins.run(
@@ -308,6 +321,7 @@ const writeCollectionTxn = db.transaction((items: CollectionEntry[]) => {
       e.startDate?.month ?? null,
       e.startDate?.day ?? null,
       e.addedAt,
+      e.tagsFull ? 1 : 0,
     );
   }
 });

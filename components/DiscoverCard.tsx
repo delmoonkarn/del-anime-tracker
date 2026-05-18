@@ -179,7 +179,9 @@ export function DiscoverCard({
 
         {item.tags.length > 0 && (
           <div className="flex flex-wrap gap-1">
-            {item.tags.map((t) => (
+            {/* Card shows only the top 5 highest-ranked tags; full list lives
+                on the entry so search/filter still works against everything. */}
+            {item.tags.slice(0, 5).map((t) => (
               <span
                 key={t}
                 className="px-1.5 py-0.5 rounded-full text-[10px] bg-zinc-800 text-zinc-400"

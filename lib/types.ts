@@ -107,6 +107,9 @@ export interface CollectionEntry extends DiscoverItem {
   addedAt: number;
   section: CollectionSection;
   startDate?: ReleaseDate | null;
+  /** True when `tags` holds the FULL tag list (not just top 5).
+   *  Older entries lack this flag → enrichment job fetches the full list. */
+  tagsFull?: boolean;
 }
 
 export type CollectionSort =

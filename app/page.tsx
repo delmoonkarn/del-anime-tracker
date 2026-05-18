@@ -104,10 +104,63 @@ export default function HomePage() {
       setDiscoverCache(loadedDiscover);
       setHFavorites(loadedHFavs);
       setHydrated(true);
+
+      // One-time tag enrichment: older collection entries only had top-5 tags.
+      // Pull the full tag list from AniList in batches for anything missing
+      // the tagsFull flag (and with a valid anilistId we can look up).
+      const needsEnrich = loadedCollection.filter(
+        (c) => c.anilistId > 0 && !c.tagsFull,
+      );
+      if (needsEnrich.length > 0) {
+        void enrichCollectionTags(needsEnrich);
+      }
     })();
     // discoverDefaultRef is memoized once; safe to omit from deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Batches collection entries through AniList's id-lookup endpoint and
+   *  rewrites their `tags` with the full list. Idempotent — every successful
+   *  enrichment also flips `tagsFull: true` so the entry is skipped next time. */
+  const enrichCollectionTags = async (entries: CollectionEntry[]) => {
+    const BATCH = 30;
+    const DELAY_MS = 800;
+    try {
+      const [{ getAnimesByIds }, { toDiscoverItem }] = await Promise.all([
+        import('@/lib/anilist'),
+        import('@/lib/discover'),
+      ]);
+      for (let i = 0; i < entries.length; i += BATCH) {
+        const chunk = entries.slice(i, i + BATCH);
+        const ids = chunk.map((e) => e.anilistId);
+        try {
+          const media = await getAnimesByIds(ids);
+          const byId = new Map(media.map((m) => [m.id, m]));
+          setCollection((prev) =>
+            prev.map((c) => {
+              const m = byId.get(c.anilistId);
+              if (!m) return c;
+              const fresh = toDiscoverItem(m);
+              return { ...c, tags: fresh.tags, tagsFull: true };
+            }),
+          );
+        } catch (err) {
+          console.warn(
+            `[enrich] batch starting at ${i} failed:`,
+            err,
+          );
+        }
+        if (i + BATCH < entries.length) {
+          await new Promise((r) => setTimeout(r, DELAY_MS));
+        }
+      }
+      console.info(
+        `[enrich] tag-enriched ${entries.length} collection entr${entries.length === 1 ? 'y' : 'ies'}`,
+      );
+    } catch (err) {
+      console.warn('[enrich] tag enrichment failed:', err);
+    }
+  };
 
   useEffect(() => {
     if (!hydrated || !state) return;
@@ -287,7 +340,10 @@ export default function HomePage() {
       // the other). Just add to this section.
       return [
         ...others,
-        { ...item, section, addedAt: Date.now() },
+        // tagsFull=true when the item already came in with its tag list (from
+        // a discover card or the add-modal search). Bare-entry adds from a
+        // schedule card heart toggle will be enriched below and re-flagged.
+        { ...item, section, addedAt: Date.now(), tagsFull: item.tags.length > 0 },
       ];
     });
     // Async enrichment for entries added without full data (e.g. from schedule
@@ -304,7 +360,7 @@ export default function HomePage() {
           setCollection((prev) =>
             prev.map((c) =>
               c.anilistId === item.anilistId && c.section === section
-                ? { ...c, ...enriched, section, addedAt: c.addedAt }
+                ? { ...c, ...enriched, section, addedAt: c.addedAt, tagsFull: true }
                 : c,
             ),
           );
