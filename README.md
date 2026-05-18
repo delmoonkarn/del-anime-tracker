@@ -2,7 +2,7 @@
 
 Personal anime tracker — schedule your watch list by season, discover what's airing, keep favorites lists, on your local.
 
-<img width="1284" height="907" alt="image" src="https://github.com/user-attachments/assets/75672cf6-9ec3-46e9-8ba1-d773d56d540d" />
+<img width="1278" height="922" alt="image" src="https://github.com/user-attachments/assets/47fad64e-ee6f-4f27-a39e-07221f5915a4" />
 
 ## Stack
 
