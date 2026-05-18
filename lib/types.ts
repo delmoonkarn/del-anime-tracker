@@ -1,5 +1,13 @@
 export type DayOfWeek = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun';
 
+/** AniList-style watch progress. `undefined` on AnimeEntry means "not set yet". */
+export type WatchStatus =
+  | 'WATCHING'
+  | 'COMPLETED'
+  | 'DROPPED'
+  | 'ON_HOLD'
+  | 'PLAN';
+
 export interface AnimeEntry {
   id: string;
   anilistId: number;
@@ -10,7 +18,22 @@ export interface AnimeEntry {
   time: string;
   platform: string;
   platformUrl: string;
+  /** Free-text user note (e.g. "peak", "ดอง"). Independent of watchStatus. */
   status: string;
+  /** Tracked watch state. Auto-flips: PLAN/undefined → WATCHING on first +,
+   *  WATCHING → COMPLETED when episodesWatched reaches totalEpisodes. */
+  watchStatus?: WatchStatus;
+  /** Episodes the user has watched. Defaults to 0 when undefined. */
+  episodesWatched?: number;
+  /** Total episode count cached from AniList at add-time. Unknown for older
+   *  entries — they'll show just the watched count without a denominator. */
+  totalEpisodes?: number;
+  /** Next-airing episode number (cached). Lets the card compute "ep N aired"
+   *  and a "X behind" delta vs episodesWatched. Stale once nextAiringAt < now;
+   *  the schedule view triggers a batched refresh against AniList. */
+  nextAiringEpisode?: number;
+  /** Unix-seconds timestamp for when `nextAiringEpisode` airs. */
+  nextAiringAt?: number;
   addedAt: number;
 }
 
@@ -44,6 +67,9 @@ export interface AnilistMedia {
   description?: string | null;
   tags?: { name: string; rank: number; isAdult?: boolean; isMediaSpoiler?: boolean }[];
   startDate?: { year: number | null; month: number | null; day: number | null } | null;
+  /** AniList's upcoming-episode field — only present for shows currently
+   *  airing (RELEASING). Null for FINISHED / NOT_YET_RELEASED / CANCELLED. */
+  nextAiringEpisode?: { episode: number; airingAt: number } | null;
 }
 
 export interface ReleaseDate {
@@ -71,11 +97,16 @@ export interface DiscoverItem {
   episodes?: number;
   averageScore?: number;
   startDate?: ReleaseDate | null;
+  /** Carries airing data through to the schedule card when added from Discover,
+   *  so the "X behind" indicator works immediately without a fresh API call. */
+  nextAiringEpisode?: number;
+  nextAiringAt?: number;
 }
 
 export interface DiscoverCacheEntry {
   fetchedAt: number;
-  season: AnimeSeason;
+  /** null = "all seasons of this year" — the dropdown's blank option. */
+  season: AnimeSeason | null;
   year: number;
   tags: string[];
   items: DiscoverItem[];

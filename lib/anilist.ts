@@ -20,6 +20,7 @@ query ($search: String) {
       episodes
       averageScore
       startDate { year month day }
+      nextAiringEpisode { episode airingAt }
     }
   }
 }`;
@@ -132,15 +133,21 @@ export async function searchTopMatchBatch(
   return queries.map((_q, i) => data[`q${i}`]?.media?.[0] ?? null);
 }
 
-// Built dynamically so we can omit `tag_in` when there are no selected tags
-// (passing null for the variable trips AniList 500s like it does on h).
-function buildSeasonQuery(hasTagFilter: boolean): string {
+// Built dynamically so we can omit `season` and/or `tag_in` when the caller
+// doesn't want those filters — passing null for the variables themselves
+// triggers AniList 500s on the H endpoint, so we just leave them out.
+function buildSeasonQuery(hasSeason: boolean, hasTagFilter: boolean): string {
+  const params: string[] = [];
+  if (hasSeason) params.push('$season: MediaSeason');
+  params.push('$year: Int', '$page: Int');
+  if (hasTagFilter) params.push('$tagsIn: [String]');
+  const seasonClause = hasSeason ? 'season: $season, ' : '';
   const tagClause = hasTagFilter ? ', tag_in: $tagsIn' : '';
   return `
-query ($season: MediaSeason, $year: Int, $page: Int${hasTagFilter ? ', $tagsIn: [String]' : ''}) {
+query (${params.join(', ')}) {
   Page(page: $page, perPage: 50) {
     pageInfo { hasNextPage currentPage }
-    media(season: $season, seasonYear: $year, type: ANIME, isAdult: false, sort: [POPULARITY_DESC]${tagClause}) {
+    media(${seasonClause}seasonYear: $year, type: ANIME, isAdult: false, sort: [POPULARITY_DESC]${tagClause}) {
       id
       title { romaji english native }
       coverImage { large medium }
@@ -151,6 +158,7 @@ query ($season: MediaSeason, $year: Int, $page: Int${hasTagFilter ? ', $tagsIn: 
       description(asHtml: false)
       tags { name rank isAdult isMediaSpoiler }
       startDate { year month day }
+      nextAiringEpisode { episode airingAt }
     }
   }
 }`;
@@ -162,14 +170,16 @@ export interface SeasonAnimeResult {
 }
 
 export async function getSeasonAnime(
-  season: AnimeSeason,
+  season: AnimeSeason | null,
   year: number,
   page = 1,
   tags?: string[],
   signal?: AbortSignal,
 ): Promise<SeasonAnimeResult> {
   const tagsIn = tags && tags.length > 0 ? tags : null;
-  const variables: Record<string, unknown> = { season, year, page };
+  const hasSeason = season !== null;
+  const variables: Record<string, unknown> = { year, page };
+  if (hasSeason) variables.season = season;
   if (tagsIn) variables.tagsIn = tagsIn;
   const res = await fetch(ENDPOINT, {
     method: 'POST',
@@ -177,7 +187,10 @@ export async function getSeasonAnime(
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify({ query: buildSeasonQuery(!!tagsIn), variables }),
+    body: JSON.stringify({
+      query: buildSeasonQuery(hasSeason, !!tagsIn),
+      variables,
+    }),
     signal,
   });
 
@@ -319,7 +332,7 @@ export async function getHAnime(opts: {
  * 90 req/min rate limit.
  */
 export async function getSeasonAnimeAll(
-  season: AnimeSeason,
+  season: AnimeSeason | null,
   year: number,
   opts: { maxPages?: number; tags?: string[]; signal?: AbortSignal } = {},
 ): Promise<AnilistMedia[]> {
@@ -354,6 +367,7 @@ query ($id: Int) {
     description(asHtml: false)
     tags { name rank isAdult isMediaSpoiler }
     startDate { year month day }
+    nextAiringEpisode { episode airingAt }
   }
 }`;
   const res = await fetch(ENDPOINT, {
@@ -389,6 +403,7 @@ query ($ids: [Int]) {
       description(asHtml: false)
       tags { name rank isAdult isMediaSpoiler }
       startDate { year month day }
+      nextAiringEpisode { episode airingAt }
     }
   }
 }`;

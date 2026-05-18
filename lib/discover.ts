@@ -35,6 +35,8 @@ export function toDiscoverItem(m: AnilistMedia): DiscoverItem {
     episodes: m.episodes ?? undefined,
     averageScore: m.averageScore ?? undefined,
     startDate: m.startDate ?? undefined,
+    nextAiringEpisode: m.nextAiringEpisode?.episode ?? undefined,
+    nextAiringAt: m.nextAiringEpisode?.airingAt ?? undefined,
   };
 }
 

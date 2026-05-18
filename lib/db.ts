@@ -15,6 +15,7 @@ import type {
   HFavoriteEntry,
   HPrefs,
   Season,
+  WatchStatus,
 } from './types';
 
 const DATA_DIR = join(process.cwd(), 'data');
@@ -148,6 +149,55 @@ try {
   console.warn('[db] tags_full migration skipped:', err);
 }
 
+// Watch-progress columns on anime_entries (added incrementally per feature
+// shipped — see `WatchStatus` in types.ts). All three are nullable: existing
+// rows mean "user hasn't engaged with the tracker yet", which the UI renders
+// as the dimmed "— Status —" pill and an episodes-watched count of 0.
+try {
+  const cols = db.prepare("PRAGMA table_info(anime_entries)").all() as { name: string }[];
+  const has = new Set(cols.map((c) => c.name));
+  if (!has.has('watch_status')) {
+    db.exec('ALTER TABLE anime_entries ADD COLUMN watch_status TEXT');
+    console.info('[db] added anime_entries.watch_status column');
+  }
+  if (!has.has('episodes_watched')) {
+    db.exec('ALTER TABLE anime_entries ADD COLUMN episodes_watched INTEGER');
+    console.info('[db] added anime_entries.episodes_watched column');
+  }
+  if (!has.has('total_episodes')) {
+    db.exec('ALTER TABLE anime_entries ADD COLUMN total_episodes INTEGER');
+    console.info('[db] added anime_entries.total_episodes column');
+  }
+  if (!has.has('next_airing_episode')) {
+    db.exec('ALTER TABLE anime_entries ADD COLUMN next_airing_episode INTEGER');
+    console.info('[db] added anime_entries.next_airing_episode column');
+  }
+  if (!has.has('next_airing_at')) {
+    db.exec('ALTER TABLE anime_entries ADD COLUMN next_airing_at INTEGER');
+    console.info('[db] added anime_entries.next_airing_at column');
+  }
+} catch (err) {
+  console.warn('[db] watch-progress migration skipped:', err);
+}
+
+// One-shot wipe of `discover_cache`: pre-airing-data caches stored
+// DiscoverItems without `nextAiringEpisode`/`nextAiringAt`, which breaks the
+// auto day/time fill on Add. Gated by a kv_store flag so it only runs once.
+try {
+  const flagKey = 'discover-cache-airing-cleared-v1';
+  const flag = db.prepare('SELECT 1 FROM kv_store WHERE key = ?').get(flagKey);
+  if (!flag) {
+    db.exec('DELETE FROM discover_cache');
+    db.prepare(
+      `INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    ).run(flagKey, JSON.stringify(true), Date.now());
+    console.info('[db] cleared discover_cache for airing-data migration');
+  }
+} catch (err) {
+  console.warn('[db] discover_cache invalidation skipped:', err);
+}
+
 // ---- AppState (seasons + anime entries + activeSeasonId) -----------------
 
 interface SeasonRow {
@@ -168,6 +218,11 @@ interface AnimeRow {
   platform_url: string | null;
   status: string | null;
   added_at: number;
+  watch_status: string | null;
+  episodes_watched: number | null;
+  total_episodes: number | null;
+  next_airing_episode: number | null;
+  next_airing_at: number | null;
 }
 
 function readAppState(): AppState | null {
@@ -191,6 +246,11 @@ function readAppState(): AppState | null {
       platform: r.platform ?? '',
       platformUrl: r.platform_url ?? '',
       status: r.status ?? '',
+      watchStatus: (r.watch_status as WatchStatus | null) ?? undefined,
+      episodesWatched: r.episodes_watched ?? undefined,
+      totalEpisodes: r.total_episodes ?? undefined,
+      nextAiringEpisode: r.next_airing_episode ?? undefined,
+      nextAiringAt: r.next_airing_at ?? undefined,
       addedAt: r.added_at,
     });
     grouped.set(r.season_id, list);
@@ -218,8 +278,8 @@ const writeAppStateTxn = db.transaction((state: AppState) => {
   );
   const insAnime = db.prepare(`
     INSERT INTO anime_entries
-      (id, season_id, anilist_id, title, title_english, image_url, day, time, platform, platform_url, status, added_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, season_id, anilist_id, title, title_english, image_url, day, time, platform, platform_url, status, added_at, watch_status, episodes_watched, total_episodes, next_airing_episode, next_airing_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const s of state.seasons) {
     insSeason.run(s.id, s.name, s.createdAt);
@@ -237,6 +297,11 @@ const writeAppStateTxn = db.transaction((state: AppState) => {
         a.platformUrl ?? null,
         a.status ?? null,
         a.addedAt,
+        a.watchStatus ?? null,
+        a.episodesWatched ?? null,
+        a.totalEpisodes ?? null,
+        a.nextAiringEpisode ?? null,
+        a.nextAiringAt ?? null,
       );
     }
   }
@@ -346,7 +411,9 @@ function readDiscoverCache(): DiscoverCache {
     .prepare('SELECT * FROM discover_cache ORDER BY fetched_at DESC')
     .all() as DiscoverRow[];
   const entries: DiscoverCacheEntry[] = rows.map((r) => ({
-    season: r.season as DiscoverCacheEntry['season'],
+    // 'ALL' is the sentinel for "no season filter (full year)". The column
+    // is NOT NULL so we can't store SQL null without a table rebuild.
+    season: (r.season === 'ALL' ? null : r.season) as DiscoverCacheEntry['season'],
     year: r.year,
     tags: JSON.parse(r.tags_json) as string[],
     fetchedAt: r.fetched_at,
@@ -362,7 +429,13 @@ const writeDiscoverTxn = db.transaction((cache: DiscoverCache) => {
     VALUES (?, ?, ?, ?, ?)
   `);
   for (const e of cache.entries) {
-    ins.run(e.season, e.year, JSON.stringify(e.tags), e.fetchedAt, JSON.stringify(e.items));
+    ins.run(
+      e.season ?? 'ALL',
+      e.year,
+      JSON.stringify(e.tags),
+      e.fetchedAt,
+      JSON.stringify(e.items),
+    );
   }
 });
 

@@ -42,6 +42,19 @@ const SEASON_LABEL: Record<AnimeSeason, string> = {
   FALL: 'Fall',
 };
 
+/** Derives "Winter 2026" / "Spring 2026" / ... from an anime's startDate.
+ *  Used when the user picked the blank "All seasons" option so each anime
+ *  lands in its actual tracker-season slot rather than a generic "2026" bin. */
+function seasonNameFromMonth(year: number, month: number | null | undefined): string {
+  const m = month ?? 0;
+  let s: string;
+  if (m <= 3) s = 'Winter';
+  else if (m <= 6) s = 'Spring';
+  else if (m <= 9) s = 'Summer';
+  else s = 'Fall';
+  return `${s} ${year}`;
+}
+
 export function DiscoverPage({
   defaultRef,
   isAddedTo,
@@ -53,7 +66,9 @@ export function DiscoverPage({
   cacheEntries,
   onCacheUpdate,
 }: Props) {
-  const [selectedSeason, setSelectedSeason] = useState<AnimeSeason>(defaultRef.season);
+  const [selectedSeason, setSelectedSeason] = useState<AnimeSeason | null>(
+    defaultRef.season,
+  );
   const [selectedYear, setSelectedYear] = useState<number>(defaultRef.year);
   const [search, setSearch] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -149,7 +164,9 @@ export function DiscoverPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSeason, selectedYear, selectedTags]);
 
-  const selectedName = `${SEASON_LABEL[selectedSeason]} ${selectedYear}`;
+  const selectedName = selectedSeason
+    ? `${SEASON_LABEL[selectedSeason]} ${selectedYear}`
+    : `All ${selectedYear}`;
   const isSelectionCurrentSeason =
     selectedSeason === defaultRef.season && selectedYear === defaultRef.year;
 
@@ -184,10 +201,15 @@ export function DiscoverPage({
         <div className="mt-4 flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <select
-              value={selectedSeason}
-              onChange={(e) => setSelectedSeason(e.target.value as AnimeSeason)}
+              value={selectedSeason ?? ''}
+              onChange={(e) =>
+                setSelectedSeason(
+                  e.target.value === '' ? null : (e.target.value as AnimeSeason),
+                )
+              }
               className="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 focus:border-indigo-500 outline-none text-sm"
             >
+              <option value="">— All year —</option>
               <option value="WINTER">Winter</option>
               <option value="SPRING">Spring</option>
               <option value="SUMMER">Summer</option>
@@ -296,8 +318,28 @@ export function DiscoverPage({
             <DiscoverCard
               key={item.anilistId}
               item={item}
-              alreadyAdded={isAddedTo(item.anilistId, selectedName)}
-              onAdd={() => onAdd(item, selectedName)}
+              alreadyAdded={isAddedTo(
+                item.anilistId,
+                // In all-year mode, "added" check is per-anime against the
+                // tracker season matching that anime's actual airing season.
+                selectedSeason
+                  ? selectedName
+                  : seasonNameFromMonth(
+                      item.startDate?.year ?? selectedYear,
+                      item.startDate?.month ?? undefined,
+                    ),
+              )}
+              onAdd={() =>
+                onAdd(
+                  item,
+                  selectedSeason
+                    ? selectedName
+                    : seasonNameFromMonth(
+                        item.startDate?.year ?? selectedYear,
+                        item.startDate?.month ?? undefined,
+                      ),
+                )
+              }
               favorited={isFavorited(item.anilistId)}
               interested={isInterested(item.anilistId)}
               onToggleFavorite={() => onToggleFavorite(item)}

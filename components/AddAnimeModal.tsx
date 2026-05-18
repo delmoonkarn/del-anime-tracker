@@ -3,7 +3,14 @@
 import { useEffect, useState } from 'react';
 import { ExternalLink, Loader2, RefreshCcw, Search, X } from 'lucide-react';
 import type { AnilistMedia, AnimeEntry, DayOfWeek } from '@/lib/types';
-import { DAYS, DAY_LABELS, PLATFORM_PRESETS, newId } from '@/lib/utils';
+import {
+  DAYS,
+  DAY_LABELS,
+  PLATFORM_PRESETS,
+  deriveDayFromStartDate,
+  deriveDayTimeFromAiringAt,
+  newId,
+} from '@/lib/utils';
 import { searchAnime } from '@/lib/anilist';
 import { useDebounce } from '@/hooks/useDebounce';
 
@@ -19,6 +26,12 @@ interface SelectedAnime {
   title: string;
   titleEnglish: string;
   imageUrl: string;
+  /** Episode count from AniList, threaded into AnimeEntry.totalEpisodes
+   *  so the schedule card's progress widget knows the denominator. */
+  episodes?: number;
+  /** Airing data — drives the "ep N aired / X behind" card indicator. */
+  nextAiringEpisode?: number;
+  nextAiringAt?: number;
 }
 
 function primaryTitle(m: AnilistMedia): string {
@@ -56,6 +69,9 @@ export function AddAnimeModal({ open, initial, onClose, onSave }: Props) {
         title: initial.title,
         titleEnglish: initial.titleEnglish ?? '',
         imageUrl: initial.imageUrl,
+        episodes: initial.totalEpisodes,
+        nextAiringEpisode: initial.nextAiringEpisode,
+        nextAiringAt: initial.nextAiringAt,
       });
       setTitle(initial.title);
       setTitleEnglish(initial.titleEnglish ?? '');
@@ -132,6 +148,14 @@ export function AddAnimeModal({ open, initial, onClose, onSave }: Props) {
       platform,
       platformUrl,
       status,
+      // Preserve any progress already tracked on the entry — editing the
+      // metadata shouldn't reset the user's episode count or watch status.
+      watchStatus: initial?.watchStatus,
+      episodesWatched: initial?.episodesWatched,
+      totalEpisodes: selected?.episodes ?? initial?.totalEpisodes,
+      // Re-binding refreshes airing data; otherwise keep whatever was cached.
+      nextAiringEpisode: selected?.nextAiringEpisode ?? initial?.nextAiringEpisode,
+      nextAiringAt: selected?.nextAiringAt ?? initial?.nextAiringAt,
       addedAt: initial?.addedAt ?? Date.now(),
     };
     onSave(entry);
@@ -207,9 +231,26 @@ export function AddAnimeModal({ open, initial, onClose, onSave }: Props) {
                               title: main,
                               titleEnglish: eng,
                               imageUrl: r.coverImage.large || r.coverImage.medium,
+                              episodes: r.episodes ?? undefined,
+                              nextAiringEpisode: r.nextAiringEpisode?.episode ?? undefined,
+                              nextAiringAt: r.nextAiringEpisode?.airingAt ?? undefined,
                             });
                             setTitle(main);
                             setTitleEnglish(eng);
+                            // Auto-fill day/time from AniList. Prefer
+                            // nextAiringEpisode (gives both day + time);
+                            // fall back to startDate for finished shows
+                            // (day only — time can't be derived from a date).
+                            // We never clobber values the user already set
+                            // (including those from `initial` during edits).
+                            const fromAiring = deriveDayTimeFromAiringAt(
+                              r.nextAiringEpisode?.airingAt ?? null,
+                            );
+                            const dayHint =
+                              fromAiring?.day ?? deriveDayFromStartDate(r.startDate);
+                            const timeHint = fromAiring?.time;
+                            if (!day && dayHint) setDay(dayHint);
+                            if (!time && timeHint) setTime(timeHint);
                             setQuery('');
                             setResults([]);
                           }}

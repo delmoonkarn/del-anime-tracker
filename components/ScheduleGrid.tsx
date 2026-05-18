@@ -10,16 +10,38 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import type { AnimeEntry, DayOfWeek } from '@/lib/types';
-import { DAY_LABELS, getTodayDay, timeToMinutes } from '@/lib/utils';
+import type { AnimeEntry, DayOfWeek, WatchStatus } from '@/lib/types';
+import {
+  DAY_LABELS,
+  WATCH_STATUSES,
+  WATCH_STATUS_CLASS,
+  WATCH_STATUS_SHORT,
+  computeAiredEpisodes,
+  getTodayDay,
+  timeToMinutes,
+} from '@/lib/utils';
+
+/** True iff the entry is actively WATCHING and its aired-episode count
+ *  exceeds what the user has watched — i.e. you're behind on this show. */
+function isWatchingBehind(a: AnimeEntry): boolean {
+  if (a.watchStatus !== 'WATCHING') return false;
+  const aired = computeAiredEpisodes(a);
+  const watched = a.episodesWatched ?? 0;
+  return aired != null && watched < aired;
+}
 import { AnimeCard } from './AnimeCard';
 import { useConfirm } from './ConfirmDialog';
 
 interface Props {
   animes: AnimeEntry[];
   seasonName: string;
+  /** True iff this is the calendar's current season. Gates the airing-vs-
+   *  watched indicator on each card — past seasons are done airing, future
+   *  seasons haven't started, so the indicator is only useful here. */
+  isCurrentSeason: boolean;
   onEdit: (entry: AnimeEntry) => void;
   onDelete: (id: string) => void;
+  onUpdate: (entry: AnimeEntry) => void;
   onAddAnime: () => void;
   onImport: (file: File) => void;
   onExport: () => void;
@@ -151,8 +173,10 @@ const XL_COLS = 6;
 export function ScheduleGrid({
   animes,
   seasonName,
+  isCurrentSeason,
   onEdit,
   onDelete,
+  onUpdate,
   onAddAnime,
   onImport,
   onExport,
@@ -171,16 +195,53 @@ export function ScheduleGrid({
     return () => clearInterval(id);
   }, []);
 
+  // If we're not on the current season, drop the BEHIND filter (it'd match
+  // nothing meaningful and the pill wouldn't render anyway).
+  useEffect(() => {
+    if (!isCurrentSeason && statusFilter === 'BEHIND') {
+      setStatusFilter('ALL');
+    }
+    // setStatusFilter is stable; intentionally narrow deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCurrentSeason]);
+
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<
+    WatchStatus | 'ALL' | 'BEHIND'
+  >('ALL');
   const q = search.trim().toLowerCase();
-  const filtered = q
+  const searched = q
     ? animes.filter(
         (a) =>
           a.title.toLowerCase().includes(q) ||
           (a.titleEnglish?.toLowerCase().includes(q) ?? false),
       )
     : animes;
+  const filtered =
+    statusFilter === 'ALL'
+      ? searched
+      : statusFilter === 'BEHIND'
+        ? searched.filter(isWatchingBehind)
+        : searched.filter((a) => a.watchStatus === statusFilter);
   const sorted = [...filtered].sort(sortFlow);
+
+  // Pre-compute per-status counts off the unfiltered list so the pills show
+  // how much each filter would surface even when one is currently active.
+  // BEHIND is only meaningful on the current season — past seasons have no
+  // live airing data, so we don't count or expose the pill there.
+  const statusCounts: Record<WatchStatus | 'ALL' | 'BEHIND', number> = {
+    ALL: animes.length,
+    WATCHING: 0,
+    COMPLETED: 0,
+    DROPPED: 0,
+    ON_HOLD: 0,
+    PLAN: 0,
+    BEHIND: 0,
+  };
+  for (const a of animes) {
+    if (a.watchStatus) statusCounts[a.watchStatus]++;
+    if (isCurrentSeason && isWatchingBehind(a)) statusCounts.BEHIND++;
+  }
   const today = getTodayDay();
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -225,9 +286,82 @@ export function ScheduleGrid({
         />
       </div>
 
+      {animes.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mb-5">
+          <button
+            type="button"
+            onClick={() => setStatusFilter('ALL')}
+            className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
+              statusFilter === 'ALL'
+                ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/60'
+                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+            }`}
+          >
+            All{' '}
+            <span className="text-zinc-500 tabular-nums">{statusCounts.ALL}</span>
+          </button>
+          {WATCH_STATUSES.map((s) => {
+            const count = statusCounts[s];
+            if (count === 0) return null;
+            const active = statusFilter === s;
+            const pill = (
+              <button
+                type="button"
+                onClick={() => setStatusFilter(s)}
+                className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                  active
+                    ? WATCH_STATUS_CLASS[s]
+                    : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+                }`}
+              >
+                {WATCH_STATUS_SHORT[s]}{' '}
+                <span className={active ? 'opacity-70' : 'text-zinc-500'}>
+                  {count}
+                </span>
+              </button>
+            );
+            // Slot the BEHIND pill right after WATCHING since it's a subset
+            // of "currently watching" — only on the current season and only
+            // when there's at least one show in that state.
+            const showBehindPill =
+              s === 'WATCHING' &&
+              isCurrentSeason &&
+              statusCounts.BEHIND > 0;
+            if (!showBehindPill) return <div key={s}>{pill}</div>;
+            const behindActive = statusFilter === 'BEHIND';
+            return (
+              <div key={s} className="contents">
+                {pill}
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('BEHIND')}
+                  className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                    behindActive
+                      ? 'bg-orange-500/20 text-orange-200 border-orange-400'
+                      : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-orange-500/40'
+                  }`}
+                  title="Currently watching and behind on aired episodes"
+                >
+                  Behind{' '}
+                  <span className={behindActive ? 'opacity-70' : 'text-zinc-500'}>
+                    {statusCounts.BEHIND}
+                  </span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {q && sorted.length === 0 && animes.length > 0 && (
         <p className="text-center text-sm text-zinc-500 py-12">
           No titles match &quot;{search.trim()}&quot;.
+        </p>
+      )}
+
+      {!q && filtered.length === 0 && animes.length > 0 && (
+        <p className="text-center text-sm text-zinc-500 py-12">
+          No anime under that filter.
         </p>
       )}
 
@@ -250,7 +384,11 @@ export function ScheduleGrid({
           const isXlRowStart = i > 0 && i % XL_COLS === 0;
           const dayName = entry.day ? DAY_LABELS[entry.day] : 'Unscheduled';
           const isUnscheduled = entry.day == null;
-          const isToday = !isUnscheduled && entry.day === today;
+          // Today / Aired highlights only fire on the calendar's current
+          // season. Past seasons are done airing; future seasons haven't
+          // started — flagging a weekday as "today" there is misleading.
+          const isToday =
+            isCurrentSeason && !isUnscheduled && entry.day === today;
           const airMin = isToday ? timeToMinutes(entry.time) : null;
           const isAired = isToday && airMin != null && nowMinutes >= airMin;
 
@@ -284,6 +422,8 @@ export function ScheduleGrid({
                 entry={entry}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onUpdate={onUpdate}
+                showAiring={isCurrentSeason}
                 onToggleFavorite={onToggleFavorite}
                 onToggleInterested={onToggleInterested}
                 isFavorited={isFavorited ? isFavorited(entry.anilistId) : false}

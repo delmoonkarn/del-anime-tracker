@@ -1,4 +1,40 @@
-import type { AnimeSeason, AnimeSeasonRef, DayOfWeek } from './types';
+import type { AnimeEntry, AnimeSeason, AnimeSeasonRef, DayOfWeek, WatchStatus } from './types';
+
+export const WATCH_STATUSES: WatchStatus[] = [
+  'WATCHING',
+  'COMPLETED',
+  'DROPPED',
+  'ON_HOLD',
+  'PLAN',
+];
+
+export const WATCH_STATUS_LABELS: Record<WatchStatus, string> = {
+  WATCHING: 'Watching',
+  COMPLETED: 'Completed',
+  DROPPED: 'Dropped',
+  ON_HOLD: 'On Hold',
+  PLAN: 'Plan to Watch',
+};
+
+/** Short labels for tight UI spots like filter pills on small viewports. */
+export const WATCH_STATUS_SHORT: Record<WatchStatus, string> = {
+  WATCHING: 'Watching',
+  COMPLETED: 'Done',
+  DROPPED: 'Dropped',
+  ON_HOLD: 'Hold',
+  PLAN: 'Plan',
+};
+
+/** Tailwind classes (text + bg + border) tuned to the cyberpunk palette.
+ *  ON_HOLD and PLAN share neutral/warm pairs that read intuitively: paused
+ *  shows look muted (gray), plan-to-watch reads as warm anticipation (amber). */
+export const WATCH_STATUS_CLASS: Record<WatchStatus, string> = {
+  WATCHING: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/40',
+  COMPLETED: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40',
+  DROPPED: 'bg-red-500/15 text-red-300 border-red-500/40',
+  ON_HOLD: 'bg-zinc-700/40 text-zinc-300 border-zinc-600',
+  PLAN: 'bg-amber-500/15 text-amber-300 border-amber-500/40',
+};
 
 export const DAYS: DayOfWeek[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -47,6 +83,79 @@ export function getCurrentSeasonName(date: Date = new Date()): string {
   if (m <= 5) return `Spring ${y}`;
   if (m <= 8) return `Summer ${y}`;
   return `Fall ${y}`;
+}
+
+/**
+ * Returns how many episodes have aired so far, derived from cached AniList
+ * airing data on the entry. Returns null when we have no idea (no cache and
+ * no totalEpisodes). The schedule view refreshes stale caches in the
+ * background — once `nextAiringAt` slips into the past, that cache only gives
+ * a lower bound for "episodes aired" until the next refresh lands.
+ */
+export function computeAiredEpisodes(
+  entry: AnimeEntry,
+  now: number = Date.now(),
+): number | null {
+  const { nextAiringEpisode, nextAiringAt, totalEpisodes } = entry;
+  if (nextAiringEpisode != null && nextAiringAt != null) {
+    const nowSec = now / 1000;
+    // Pre-airing: ep N hasn't dropped yet → only N-1 is out.
+    // Post-airing: ep N is out (and possibly more, pending refresh).
+    const aired = nowSec < nextAiringAt ? nextAiringEpisode - 1 : nextAiringEpisode;
+    const capped = totalEpisodes != null ? Math.min(aired, totalEpisodes) : aired;
+    return Math.max(0, capped);
+  }
+  // No airing cache: if the show has a total, assume it's all out (FINISHED).
+  // This is wrong for upcoming/airing shows that haven't been refreshed yet —
+  // those entries won't have totalEpisodes either, so we'll return null anyway.
+  return totalEpisodes ?? null;
+}
+
+/** "in 3h 12m" / "in 2d 5h" / "in 45m" — short relative-time for next airing. */
+export function formatCountdown(targetUnixSec: number, now: number = Date.now()): string {
+  const diff = targetUnixSec * 1000 - now;
+  if (diff <= 0) return 'aired';
+  const totalMin = Math.floor(diff / 60_000);
+  const days = Math.floor(totalMin / (60 * 24));
+  const hours = Math.floor((totalMin % (60 * 24)) / 60);
+  const mins = totalMin % 60;
+  if (days > 0) return `in ${days}d ${hours}h`;
+  if (hours > 0) return `in ${hours}h ${mins}m`;
+  return `in ${mins}m`;
+}
+
+/**
+ * Converts AniList's `nextAiringEpisode.airingAt` (unix seconds, UTC) into a
+ * tracker-friendly `{ day, time }` in the user's local timezone. Used to
+ * auto-fill the day/time fields when adding an anime to a season — Japanese
+ * broadcast at 23:00 JST shows up as ~21:00 local for a Bangkok user, etc.
+ *
+ * Returns null when AniList didn't provide airing data (FINISHED / CANCELLED).
+ */
+export function deriveDayTimeFromAiringAt(
+  unixSec: number | null | undefined,
+): { day: DayOfWeek; time: string } | null {
+  if (unixSec == null) return null;
+  const d = new Date(unixSec * 1000);
+  const day = DAYS_SUN_FIRST[d.getDay()];
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return { day, time: `${hh}:${mm}` };
+}
+
+/**
+ * Fallback for the day-of-week when AniList didn't return airing data — uses
+ * the show's `startDate` (episode 1 air date). Returns null when startDate is
+ * incomplete. Note: only gives us the day; air time can't be derived from a
+ * calendar date alone.
+ */
+export function deriveDayFromStartDate(
+  sd: { year: number | null; month: number | null; day: number | null } | null | undefined,
+): DayOfWeek | null {
+  if (!sd || sd.year == null || sd.month == null || sd.day == null) return null;
+  const d = new Date(sd.year, sd.month - 1, sd.day);
+  if (Number.isNaN(d.getTime())) return null;
+  return DAYS_SUN_FIRST[d.getDay()];
 }
 
 /** "21:00" → 1260. Returns null if not parseable. */

@@ -37,7 +37,13 @@ import {
   saveHFavorites,
   saveState,
 } from '@/lib/storage';
-import { getCurrentAnimeSeasonRef, newId, tagsMatch } from '@/lib/utils';
+import {
+  deriveDayFromStartDate,
+  deriveDayTimeFromAiringAt,
+  getCurrentAnimeSeasonRef,
+  newId,
+  tagsMatch,
+} from '@/lib/utils';
 
 function guessCurrentSeason(): string {
   const now = new Date();
@@ -114,10 +120,87 @@ export default function HomePage() {
       if (needsEnrich.length > 0) {
         void enrichCollectionTags(needsEnrich);
       }
+
+      // Background airing refresh: only for the current calendar season's
+      // schedule — past seasons are finished (nothing to refresh) and future
+      // seasons haven't started, so the API calls would be wasted.
+      void refreshAiringSchedules(initial);
     })();
     // discoverDefaultRef is memoized once; safe to omit from deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Refreshes cached AniList airing data — but only for entries in the
+   *  current calendar season. Past seasons are finished (no future airings
+   *  to track) and future seasons haven't started, so spending API calls on
+   *  them is wasted. The card-side AiringIndicator is gated to the current
+   *  season too, so any data we'd fetch outside of it wouldn't be displayed.
+   *
+   *  Within the current season we skip COMPLETED/DROPPED entries and any
+   *  whose cache is still fresh (nextAiringAt in the future). Batched in
+   *  groups of 50 with a short delay to respect AniList's 90 req/min limit. */
+  const refreshAiringSchedules = async (snapshot: AppState) => {
+    const currentName = discoverDefaultRef.name.toLowerCase();
+    const currentSeason = snapshot.seasons.find(
+      (s) => s.name.trim().toLowerCase() === currentName,
+    );
+    if (!currentSeason) return;
+    const nowSec = Date.now() / 1000;
+    const candidates = currentSeason.animes.filter(
+      (a) =>
+        a.anilistId > 0 &&
+        a.watchStatus !== 'COMPLETED' &&
+        a.watchStatus !== 'DROPPED' &&
+        (a.nextAiringAt == null || a.nextAiringAt < nowSec),
+    );
+    if (candidates.length === 0) return;
+    const ids = Array.from(new Set(candidates.map((c) => c.anilistId)));
+    const BATCH = 50;
+    const DELAY_MS = 800;
+    try {
+      const { getAnimesByIds } = await import('@/lib/anilist');
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const chunk = ids.slice(i, i + BATCH);
+        try {
+          const media = await getAnimesByIds(chunk);
+          const byId = new Map(media.map((m) => [m.id, m]));
+          setState((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              seasons: prev.seasons.map((s) => ({
+                ...s,
+                animes: s.animes.map((a) => {
+                  const m = byId.get(a.anilistId);
+                  if (!m) return a;
+                  // AniList returns null for finished/cancelled shows. That's
+                  // a meaningful signal (no future airing) — store undefined
+                  // for both so the UI knows to fall back to totalEpisodes.
+                  const nextEp = m.nextAiringEpisode?.episode;
+                  const nextAt = m.nextAiringEpisode?.airingAt;
+                  return {
+                    ...a,
+                    nextAiringEpisode: nextEp ?? undefined,
+                    nextAiringAt: nextAt ?? undefined,
+                    // Backfill totalEpisodes too if it was missing on the entry.
+                    totalEpisodes: a.totalEpisodes ?? m.episodes ?? undefined,
+                  };
+                }),
+              })),
+            };
+          });
+        } catch (err) {
+          console.warn(`[airing] batch starting at ${i} failed:`, err);
+        }
+        if (i + BATCH < ids.length) {
+          await new Promise((r) => setTimeout(r, DELAY_MS));
+        }
+      }
+      console.info(`[airing] refreshed ${ids.length} schedule entries`);
+    } catch (err) {
+      console.warn('[airing] refresh failed:', err);
+    }
+  };
 
   /** Batches collection entries through AniList's id-lookup endpoint and
    *  rewrites their `tags` with the full list. Idempotent — every successful
@@ -261,17 +344,30 @@ export default function HomePage() {
         targetId = existing.id;
         if (existing.animes.some((a) => a.anilistId === item.anilistId)) return prev;
       }
+      // Prefer airing-based derivation (gives both day + time). Fall back to
+      // startDate for finished shows so we still slot the card into the right
+      // weekday column even if AniList no longer reports a future airing.
+      const fromAiring = deriveDayTimeFromAiringAt(item.nextAiringAt);
+      const derivedDay = fromAiring?.day ?? deriveDayFromStartDate(item.startDate);
+      const derivedTime = fromAiring?.time;
       const entry: AnimeEntry = {
         id: newId(),
         anilistId: item.anilistId,
         title: item.title,
         titleEnglish: item.titleEnglish,
         imageUrl: item.imageUrl,
-        day: null,
-        time: '',
+        day: derivedDay ?? null,
+        time: derivedTime ?? '',
         platform: '',
         platformUrl: '',
         status: '',
+        // Capture the AniList episode count so the schedule card's progress
+        // widget has a denominator. watchStatus/episodesWatched stay undefined
+        // until the user actually engages (auto-flips on the first +).
+        totalEpisodes: item.episodes,
+        // Airing data for the "ep N aired / X behind" indicator.
+        nextAiringEpisode: item.nextAiringEpisode,
+        nextAiringAt: item.nextAiringAt,
         addedAt: Date.now(),
       };
       return {
@@ -444,6 +540,23 @@ export default function HomePage() {
               : [...s.animes, entry],
           };
         }),
+      };
+    });
+  };
+
+  /** Inline-edit path from the schedule card (progress +/-, status pill).
+   *  Same shape as handleSaveAnime's update branch, but doesn't append on a
+   *  miss — if the entry isn't already in the active season, this is a no-op. */
+  const handleUpdateAnime = (entry: AnimeEntry) => {
+    setState((prev) => {
+      if (!prev || !activeSeason) return prev;
+      return {
+        ...prev,
+        seasons: prev.seasons.map((s) =>
+          s.id !== activeSeason.id
+            ? s
+            : { ...s, animes: s.animes.map((a) => (a.id === entry.id ? entry : a)) },
+        ),
       };
     });
   };
@@ -712,11 +825,18 @@ export default function HomePage() {
         <ScheduleGrid
           animes={activeSeason.animes}
           seasonName={activeSeason.name}
+          // Airing indicator + AniList refresh are gated on this — only the
+          // calendar's current season has data worth tracking week-to-week.
+          isCurrentSeason={
+            activeSeason.name.trim().toLowerCase() ===
+            discoverDefaultRef.name.toLowerCase()
+          }
           onEdit={(entry) => {
             setEditing(entry);
             setModalOpen(true);
           }}
           onDelete={handleDeleteAnime}
+          onUpdate={handleUpdateAnime}
           onAddAnime={openAdd}
           onImport={handleImport}
           onExport={handleExport}
