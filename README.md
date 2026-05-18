@@ -24,7 +24,6 @@ npm run dev
 
 Or double-click **`run.bat`**.
 
-> **Requires** Node.js 18+ on PATH (download: <https://nodejs.org/>). Both the prebuilt `.exe` and the dev server spawn `npm`, so Node has to be installed system-wide.
 
 ## Features
 
