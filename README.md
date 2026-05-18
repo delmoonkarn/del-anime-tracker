@@ -71,14 +71,11 @@ hooks/
 data/                          # SQLite DB lives here (gitignored)
 ```
 
-## Database (SQLite)
+## Where your data lives
 
-`data/anime-tracker.db` 
+Everything you add — schedule, collection, hentai favorites, discover cache, prefs — is stored in `data/anime-tracker.db`. Writes are atomic and crash-safe.
 
-
-All writes are debounced 300 ms on the client side, sent as PUT/POST to `/api/storage/<key>`, and applied to the DB in a single SQLite transaction. Atomic writes; crash-safe via WAL.
-
-**Backup / restore:** copy the `data/` folder. Drop it back in to restore. Everything you've added — schedule, collection, discover cache, prefs — lives in `anime-tracker.db` plus its two WAL sidecar files.
+**Backup / restore:** copy the `data/` folder. Drop it back in to restore.
 
 ## Credits
 
