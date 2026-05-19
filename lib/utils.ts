@@ -205,27 +205,6 @@ export function getCurrentAnimeSeasonRef(date: Date = new Date()): AnimeSeasonRe
 }
 
 /**
- * Returns the season following the one for `date`.
- *   Spring 2026 → Summer 2026
- *   Fall 2026   → Winter 2027 (year rolls over after Fall)
- */
-export function getNextAnimeSeasonRef(date: Date = new Date()): AnimeSeasonRef {
-  const cur = getCurrentAnimeSeasonRef(date);
-  const curIdx = SEASON_CODES.indexOf(cur.season);
-  let nextIdx = curIdx + 1;
-  let year = cur.year;
-  if (nextIdx > 3) {
-    nextIdx = 0;
-    year++;
-  }
-  return {
-    season: SEASON_CODES[nextIdx],
-    year,
-    name: `${SEASON_DISPLAY[nextIdx]} ${year}`,
-  };
-}
-
-/**
  * Generates a list of anime-season references for a season-picker. Returns
  * `future + 1 + past` entries, newest first. e.g. `{ past: 6, future: 1 }` →
  * 8 entries with the future season at the top.

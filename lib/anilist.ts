@@ -34,6 +34,58 @@ export class AnilistError extends Error {
   }
 }
 
+/**
+ * Wraps a fetch() call so:
+ *   1. Network-level failures (CORS, DNS, offline) come through as
+ *      AnilistError instead of the browser's mystery "Failed to fetch".
+ *   2. AniList's own "API temporarily disabled" 403 — which they ship during
+ *      stability incidents — gets a clear user-facing message instead of a
+ *      generic HTTP status.
+ *
+ * AbortError passes through so abort signals still cancel cleanly.
+ */
+async function anilistFetch(
+  body: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body,
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    throw new AnilistError(
+      'Could not reach AniList. They may be down — check anilist.co or their Discord.',
+      0,
+    );
+  }
+  // Peek the body for AniList's outage announcement. Use clone() so the
+  // original Response is still readable by the caller for the success path.
+  if (!res.ok) {
+    try {
+      const peek = (await res.clone().json()) as {
+        errors?: { message?: string }[];
+      };
+      const msg = peek.errors?.[0]?.message ?? '';
+      if (/temporarily disabled|stability issues|maintenance/i.test(msg)) {
+        throw new AnilistError(
+          'AniList API is currently disabled by AniList (stability issues on their side). Try again later — check anilist.co or their Discord for status.',
+          res.status,
+        );
+      }
+    } catch (err) {
+      if (err instanceof AnilistError) throw err;
+      // body wasn't JSON or some other parse error — fall through and let
+      // the caller's status-code branch produce the generic message.
+    }
+  }
+  return res;
+}
+
 export async function searchAnime(
   query: string,
   signal?: AbortSignal,
@@ -41,15 +93,10 @@ export async function searchAnime(
   const q = query.trim();
   if (q.length < 2) return [];
 
-  const res = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({ query: SEARCH_QUERY, variables: { search: q } }),
+  const res = await anilistFetch(
+    JSON.stringify({ query: SEARCH_QUERY, variables: { search: q } }),
     signal,
-  });
+  );
 
   if (!res.ok) {
     const msg =
@@ -108,15 +155,10 @@ export async function searchTopMatchBatch(
     variables[`q${i}`] = q;
   });
 
-  const res = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({ query: buildBatchQuery(queries.length), variables }),
+  const res = await anilistFetch(
+    JSON.stringify({ query: buildBatchQuery(queries.length), variables }),
     signal,
-  });
+  );
 
   if (!res.ok) {
     const msg =
@@ -184,18 +226,13 @@ export async function getSeasonAnime(
   const variables: Record<string, unknown> = { year, page };
   if (hasSeason) variables.season = season;
   if (tagsIn) variables.tagsIn = tagsIn;
-  const res = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
+  const res = await anilistFetch(
+    JSON.stringify({
       query: buildSeasonQuery(hasSeason, !!tagsIn),
       variables,
     }),
     signal,
-  });
+  );
 
   if (!res.ok) {
     const msg =
@@ -226,12 +263,7 @@ query {
 }`;
 
 export async function getAllTags(signal?: AbortSignal): Promise<AnilistTag[]> {
-  const res = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query: TAGS_QUERY }),
-    signal,
-  });
+  const res = await anilistFetch(JSON.stringify({ query: TAGS_QUERY }), signal);
   if (!res.ok) {
     throw new AnilistError(`AniList returned HTTP ${res.status}.`, res.status);
   }
@@ -296,15 +328,13 @@ export async function getHAnime(opts: {
   const tagsIn = opts.tags && opts.tags.length > 0 ? opts.tags : null;
   const trimmedSearch = opts.search?.trim() ?? '';
   const search = trimmedSearch.length > 0 ? trimmedSearch : null;
-  const res = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({
+  const res = await anilistFetch(
+    JSON.stringify({
       query: buildHQuery(!!opts.excludeUnreleased),
       variables: { page, sort, tagsIn, search },
     }),
-    signal: opts.signal,
-  });
+    opts.signal,
+  );
 
   if (!res.ok) {
     const msg =
@@ -373,12 +403,12 @@ query ($id: Int) {
     nextAiringEpisode { episode airingAt }
   }
 }`;
-  const res = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query, variables: { id } }),
-    signal,
-  });
+  let res: Response;
+  try {
+    res = await anilistFetch(JSON.stringify({ query, variables: { id } }), signal);
+  } catch {
+    return null;
+  }
   if (!res.ok) return null;
   const json = (await res.json()) as { data?: { Media?: AnilistMedia } };
   return json.data?.Media ?? null;
@@ -410,12 +440,10 @@ query ($ids: [Int]) {
     }
   }
 }`;
-  const res = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query, variables: { ids } }),
+  const res = await anilistFetch(
+    JSON.stringify({ query, variables: { ids } }),
     signal,
-  });
+  );
   if (!res.ok) {
     throw new AnilistError(`AniList returned HTTP ${res.status}.`, res.status);
   }

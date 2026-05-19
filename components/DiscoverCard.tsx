@@ -161,7 +161,7 @@ export function DiscoverCard({
           </h3>
           {item.titleEnglish && (
             <p
-              className="text-[10px] text-zinc-500 line-clamp-1 leading-tight mt-0.5"
+              className="text-xs text-zinc-300 line-clamp-1 leading-tight mt-0.5"
               title={item.titleEnglish}
             >
               {item.titleEnglish}

@@ -399,24 +399,53 @@ export async function exportCollection(items: CollectionEntry[]): Promise<void> 
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export async function exportSingleSeason(season: Season): Promise<void> {
-  const ExcelJS = (await import('exceljs')).default;
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'Anime Tracker';
-  wb.created = new Date();
+// --- JSON (raw DB) backups ----------------------------------------------
+//
+// Scope-bounded, lossless backups. Faster than the xlsx round-trip and
+// preserves every AnimeEntry / CollectionEntry field as-is (the xlsx format
+// only carries the visible columns). `kind` is a sanity marker so the
+// importer can reject mismatched files (e.g. a collection backup dropped
+// into the schedule menu).
 
-  writeSeasonSheet(wb as ExcelJSNamespace.Workbook, season);
+const SCHEDULE_KIND = 'anime-tracker-schedule';
+const COLLECTION_KIND = 'anime-tracker-collection';
 
-  const buffer = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  });
+function downloadBlob(content: string, filename: string, mime: string): void {
+  const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${safeFileName(season.name)}.xlsx`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export function exportScheduleJson(seasons: Season[]): void {
+  const payload = {
+    kind: SCHEDULE_KIND,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    seasons,
+  };
+  downloadBlob(
+    JSON.stringify(payload, null, 2),
+    `schedule_${new Date().toISOString().slice(0, 10)}.json`,
+    'application/json',
+  );
+}
+
+export function exportCollectionJson(entries: CollectionEntry[]): void {
+  const payload = {
+    kind: COLLECTION_KIND,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    entries,
+  };
+  downloadBlob(
+    JSON.stringify(payload, null, 2),
+    `collection_${new Date().toISOString().slice(0, 10)}.json`,
+    'application/json',
+  );
 }

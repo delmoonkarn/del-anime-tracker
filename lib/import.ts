@@ -372,3 +372,77 @@ export async function importCollection(file: File): Promise<CollectionEntry[]> {
 
   return out;
 }
+
+// --- JSON (raw DB) restores ---------------------------------------------
+//
+// The JSON file is a lossless dump produced by exportScheduleJson /
+// exportCollectionJson. We validate the `kind` marker so a collection
+// backup can't be mistakenly applied to the schedule (and vice-versa).
+
+interface ScheduleBackup {
+  kind: 'anime-tracker-schedule';
+  version: number;
+  seasons: Season[];
+}
+
+interface CollectionBackup {
+  kind: 'anime-tracker-collection';
+  version: number;
+  entries: CollectionEntry[];
+}
+
+export class JsonImportError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'JsonImportError';
+  }
+}
+
+async function readJson(file: File): Promise<unknown> {
+  const text = await file.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new JsonImportError(
+      'File is not valid JSON. Pick a .json backup exported from this app.',
+    );
+  }
+}
+
+export async function importScheduleJson(file: File): Promise<Season[]> {
+  const raw = await readJson(file);
+  if (
+    !raw ||
+    typeof raw !== 'object' ||
+    (raw as Record<string, unknown>).kind !== 'anime-tracker-schedule'
+  ) {
+    throw new JsonImportError(
+      'File doesn’t look like a schedule backup. Use the collection menu for collection backups.',
+    );
+  }
+  const parsed = raw as ScheduleBackup;
+  if (!Array.isArray(parsed.seasons)) {
+    throw new JsonImportError('Backup is missing the `seasons` array.');
+  }
+  return parsed.seasons;
+}
+
+export async function importCollectionJson(
+  file: File,
+): Promise<CollectionEntry[]> {
+  const raw = await readJson(file);
+  if (
+    !raw ||
+    typeof raw !== 'object' ||
+    (raw as Record<string, unknown>).kind !== 'anime-tracker-collection'
+  ) {
+    throw new JsonImportError(
+      'File doesn’t look like a collection backup. Use the schedule menu for schedule backups.',
+    );
+  }
+  const parsed = raw as CollectionBackup;
+  if (!Array.isArray(parsed.entries)) {
+    throw new JsonImportError('Backup is missing the `entries` array.');
+  }
+  return parsed.entries;
+}

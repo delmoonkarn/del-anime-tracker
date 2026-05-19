@@ -32,6 +32,8 @@ interface Props {
   onRemove: (anilistId: number, section: CollectionSection) => void;
   onSwitchSection: (section: CollectionSection) => void;
   onImport: (file: File) => void;
+  onImportJson: (file: File) => void;
+  onExportJson: () => void;
   importing?: boolean;
 }
 
@@ -52,6 +54,8 @@ export function CollectionPage({
   onRemove,
   onSwitchSection,
   onImport,
+  onImportJson,
+  onExportJson,
   importing,
 }: Props) {
   const [search, setSearch] = useState('');
@@ -63,6 +67,7 @@ export function CollectionPage({
   const [ioMenuOpen, setIoMenuOpen] = useState(false);
   const ioMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const jsonFileInputRef = useRef<HTMLInputElement>(null);
   const confirm = useConfirm();
 
   useEffect(() => {
@@ -282,6 +287,23 @@ export function CollectionPage({
                   e.target.value = '';
                 }}
               />
+              <input
+                ref={jsonFileInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!f) return;
+                  const ok = await confirm({
+                    title: 'Restore collection',
+                    message: `Restore from "${f.name}"? Existing entries (matched by AniList ID + section) will be updated; new entries appended. Nothing is deleted.`,
+                    confirmText: 'Restore',
+                  });
+                  if (ok) onImportJson(f);
+                }}
+              />
               <button
                 type="button"
                 onClick={() => setIoMenuOpen((o) => !o)}
@@ -326,6 +348,37 @@ export function CollectionPage({
                   >
                     <ArrowDownToLine className="w-4 h-4" />
                     Export .xlsx
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIoMenuOpen(false);
+                      jsonFileInputRef.current?.click();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800 text-left border-t-2 border-zinc-700"
+                  >
+                    <ArrowUpFromLine className="w-4 h-4" />
+                    Restore .json
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIoMenuOpen(false);
+                      if (collection.length === 0) return;
+                      const ok = await confirm({
+                        title: 'Backup collection as JSON',
+                        message: `Download a lossless JSON backup of ${collection.length} entr${
+                          collection.length === 1 ? 'y' : 'ies'
+                        }?`,
+                        confirmText: 'Download',
+                      });
+                      if (ok) onExportJson();
+                    }}
+                    disabled={collection.length === 0}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800 text-left border-t border-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <ArrowDownToLine className="w-4 h-4" />
+                    Backup .json
                   </button>
                 </div>
               )}

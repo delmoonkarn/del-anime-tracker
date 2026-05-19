@@ -149,24 +149,36 @@ function AiringIndicator({ entry }: { entry: AnimeEntry }) {
     }
   }
 
+  const showFirstRow = (aired != null && aired > 0) || deltaLabel != null;
+  const showSecondRow =
+    upcoming && entry.nextAiringEpisode != null && entry.nextAiringAt != null;
+
   return (
-    <div className="flex items-center gap-1.5 text-[10px] mt-0.5 leading-tight">
-      {aired != null && aired > 0 && (
-        <span className="text-zinc-500 tabular-nums">ep {aired} aired</span>
+    <div className="text-xs mt-0.5 leading-tight space-y-0.5">
+      {/* Row 1: "what's happened" — aired so far + the delta vs watched. */}
+      {showFirstRow && (
+        <div className="flex items-center gap-1.5">
+          {aired != null && aired > 0 && (
+            <span className="text-zinc-300 tabular-nums">ep {aired} aired</span>
+          )}
+          {deltaLabel && (
+            <>
+              {aired != null && aired > 0 && (
+                <span className="text-zinc-500">·</span>
+              )}
+              <span className={`font-medium ${deltaClass}`}>{deltaLabel}</span>
+            </>
+          )}
+        </div>
       )}
-      {deltaLabel && (
-        <>
-          {aired != null && aired > 0 && <span className="text-zinc-700">·</span>}
-          <span className={`font-medium ${deltaClass}`}>{deltaLabel}</span>
-        </>
-      )}
-      {upcoming && entry.nextAiringEpisode != null && entry.nextAiringAt != null && (
-        <span
-          className="ml-auto text-indigo-300 tabular-nums"
+      {/* Row 2: "what's coming" — next-airing episode countdown. */}
+      {showSecondRow && (
+        <div
+          className="text-indigo-300 tabular-nums"
           title={`Episode ${entry.nextAiringEpisode}`}
         >
-          ep {entry.nextAiringEpisode} {formatCountdown(entry.nextAiringAt)}
-        </span>
+          ep {entry.nextAiringEpisode} {formatCountdown(entry.nextAiringAt!)}
+        </div>
       )}
     </div>
   );
@@ -230,7 +242,7 @@ function WatchProgressRow({
         </button>
         <span className="text-[11px] tabular-nums px-1 text-zinc-300">
           {watched}
-          {total != null && <span className="text-zinc-500">/{total}</span>}
+          {total != null && <span className="text-zinc-400">/{total}</span>}
         </span>
         <button
           type="button"
@@ -483,7 +495,7 @@ export function AnimeCard({
         </h3>
         {showEnglish && (
           <p
-            className="text-[11px] text-zinc-500 leading-tight line-clamp-1"
+            className="text-xs text-zinc-300 leading-tight line-clamp-1"
             title={entry.titleEnglish}
           >
             {entry.titleEnglish}
@@ -496,7 +508,7 @@ export function AnimeCard({
               ? 'text-amber-400 font-semibold'
               : isToday
                 ? 'text-indigo-300 font-semibold'
-                : 'text-zinc-400'
+                : 'text-zinc-300'
           }`}
         >
           <Clock className="w-3.5 h-3.5" />
@@ -506,7 +518,7 @@ export function AnimeCard({
         </div>
 
         {entry.platform && (
-          <div className="text-xs text-zinc-500 truncate" title={entry.platform}>
+          <div className="text-xs text-zinc-300 truncate" title={entry.platform}>
             {entry.platform}
           </div>
         )}

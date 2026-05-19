@@ -773,6 +773,108 @@ export default function HomePage() {
     }
   };
 
+  /** Restore from a `.json` schedule backup. Differs from xlsx import:
+   *  matches by anilistId (or trimmed lowercase title) → REPLACES the
+   *  existing entry instead of skipping it. Brand-new seasons / entries are
+   *  appended. Nothing is deleted. */
+  const handleScheduleJsonImport = async (file: File) => {
+    if (importing) return;
+    setImporting(true);
+    try {
+      const { importScheduleJson, JsonImportError } = await import('@/lib/import');
+      let imported: Season[];
+      try {
+        imported = await importScheduleJson(file);
+      } catch (err) {
+        if (err instanceof JsonImportError) {
+          await confirm({
+            title: 'Import failed',
+            message: err.message,
+            alert: true,
+            kind: 'danger',
+          });
+          return;
+        }
+        throw err;
+      }
+      if (imported.length === 0) {
+        await confirm({
+          title: 'Nothing to import',
+          message: 'The backup contained no seasons.',
+          alert: true,
+          kind: 'warning',
+        });
+        return;
+      }
+      let added = 0;
+      let updated = 0;
+      setState((prev) => {
+        if (!prev) return prev;
+        let mergedSeasons = [...prev.seasons];
+        for (const importSeason of imported) {
+          const existingIdx = mergedSeasons.findIndex(
+            (s) => s.name.toLowerCase() === importSeason.name.toLowerCase(),
+          );
+          if (existingIdx === -1) {
+            mergedSeasons.push(importSeason);
+            added += importSeason.animes.length;
+            continue;
+          }
+          const target = mergedSeasons[existingIdx];
+          const keyOf = (a: AnimeEntry) =>
+            a.anilistId > 0
+              ? `id:${a.anilistId}`
+              : `t:${a.title.trim().toLowerCase()}`;
+          const byKey = new Map<string, AnimeEntry>();
+          for (const a of target.animes) byKey.set(keyOf(a), a);
+          for (const a of importSeason.animes) {
+            const k = keyOf(a);
+            if (byKey.has(k)) {
+              // Replace — keep the existing id so other references stay
+              // stable, but adopt every other field from the backup.
+              const old = byKey.get(k)!;
+              byKey.set(k, { ...a, id: old.id });
+              updated++;
+            } else {
+              byKey.set(k, a);
+              added++;
+            }
+          }
+          mergedSeasons = mergedSeasons.map((s, i) =>
+            i === existingIdx ? { ...s, animes: Array.from(byKey.values()) } : s,
+          );
+        }
+        return {
+          seasons: mergedSeasons,
+          activeSeasonId: prev.activeSeasonId ?? mergedSeasons[0]?.id ?? null,
+        };
+      });
+      await confirm({
+        title: 'Schedule restored',
+        message: `Added ${added} entr${added === 1 ? 'y' : 'ies'}${
+          updated > 0 ? ` · updated ${updated}` : ''
+        }.`,
+        alert: true,
+      });
+    } catch (err) {
+      console.error('Schedule JSON import failed', err);
+      await confirm({
+        title: 'Import failed',
+        message: 'See the browser console for details.',
+        alert: true,
+        kind: 'danger',
+      });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleScheduleJsonExport = async () => {
+    if (!state) return;
+    const { exportScheduleJson } = await import('@/lib/export');
+    exportScheduleJson(state.seasons);
+  };
+
   // Collection import — merges into the existing collection by (anilistId, section)
   const handleCollectionImport = async (file: File) => {
     if (importingCollection) return;
@@ -824,6 +926,82 @@ export default function HomePage() {
     } finally {
       setImportingCollection(false);
     }
+  };
+
+  /** Restore from a `.json` collection backup. Merge by (anilistId, section);
+   *  matched entries are REPLACED (so a backup beats whatever's in memory),
+   *  new entries are appended. Nothing is deleted. */
+  const handleCollectionJsonImport = async (file: File) => {
+    if (importingCollection) return;
+    setImportingCollection(true);
+    try {
+      const { importCollectionJson, JsonImportError } = await import(
+        '@/lib/import'
+      );
+      let imported: CollectionEntry[];
+      try {
+        imported = await importCollectionJson(file);
+      } catch (err) {
+        if (err instanceof JsonImportError) {
+          await confirm({
+            title: 'Import failed',
+            message: err.message,
+            alert: true,
+            kind: 'danger',
+          });
+          return;
+        }
+        throw err;
+      }
+      if (imported.length === 0) {
+        await confirm({
+          title: 'Nothing to import',
+          message: 'The backup contained no collection entries.',
+          alert: true,
+          kind: 'warning',
+        });
+        return;
+      }
+      let added = 0;
+      let updated = 0;
+      setCollection((prev) => {
+        const byKey = new Map<string, CollectionEntry>();
+        for (const c of prev) byKey.set(`${c.anilistId}:${c.section}`, c);
+        for (const e of imported) {
+          const k = `${e.anilistId}:${e.section}`;
+          if (byKey.has(k)) {
+            byKey.set(k, e);
+            updated++;
+          } else {
+            byKey.set(k, e);
+            added++;
+          }
+        }
+        return Array.from(byKey.values());
+      });
+      await confirm({
+        title: 'Collection restored',
+        message: `Added ${added} entr${added === 1 ? 'y' : 'ies'}${
+          updated > 0 ? ` · updated ${updated}` : ''
+        }.`,
+        alert: true,
+      });
+    } catch (err) {
+      console.error('Collection JSON import failed', err);
+      await confirm({
+        title: 'Import failed',
+        message: 'See the browser console for details.',
+        alert: true,
+        kind: 'danger',
+      });
+    } finally {
+      setImportingCollection(false);
+    }
+  };
+
+  const handleCollectionJsonExport = async () => {
+    const { exportCollectionJson } = await import('@/lib/export');
+    exportCollectionJson(collection);
   };
 
   return (
@@ -898,6 +1076,8 @@ export default function HomePage() {
             setView(s === 'favorites' ? 'collection-favorites' : 'collection-interested')
           }
           onImport={handleCollectionImport}
+          onImportJson={handleCollectionJsonImport}
+          onExportJson={handleCollectionJsonExport}
           importing={importingCollection}
         />
       ) : !activeSeason ? (
@@ -924,6 +1104,8 @@ export default function HomePage() {
           onAddAnime={openAdd}
           onImport={handleImport}
           onExport={handleExport}
+          onImportJson={handleScheduleJsonImport}
+          onExportJson={handleScheduleJsonExport}
           onToggleFavorite={toggleFavoriteFromSchedule}
           onToggleInterested={toggleInterestedFromSchedule}
           isFavorited={isFavorited}

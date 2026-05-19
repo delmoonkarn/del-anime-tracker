@@ -45,6 +45,8 @@ interface Props {
   onAddAnime: () => void;
   onImport: (file: File) => void;
   onExport: () => void;
+  onImportJson: (file: File) => void;
+  onExportJson: () => void;
   onToggleFavorite?: (entry: AnimeEntry) => void;
   onToggleInterested?: (entry: AnimeEntry) => void;
   isFavorited?: (anilistId: number) => boolean;
@@ -56,17 +58,22 @@ interface Props {
 function ImportExportMenu({
   onImport,
   onExport,
+  onImportJson,
+  onExportJson,
   importing,
   exporting,
 }: {
   onImport: (file: File) => void;
   onExport: () => void;
+  onImportJson: (file: File) => void;
+  onExportJson: () => void;
   importing?: boolean;
   exporting?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const jsonFileRef = useRef<HTMLInputElement>(null);
   const busy = importing || exporting;
   const confirm = useConfirm();
 
@@ -96,6 +103,23 @@ function ImportExportMenu({
             confirmText: 'Import',
           });
           if (ok) onImport(f);
+        }}
+      />
+      <input
+        ref={jsonFileRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = '';
+          if (!f) return;
+          const ok = await confirm({
+            title: 'Restore from backup',
+            message: `Restore from "${f.name}"? Existing entries with matching IDs will be updated; new entries appended. Nothing is deleted.`,
+            confirmText: 'Restore',
+          });
+          if (ok) onImportJson(f);
         }}
       />
       <button
@@ -147,6 +171,33 @@ function ImportExportMenu({
             <ArrowDownToLine className="w-4 h-4" />
             Export .xlsx
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              jsonFileRef.current?.click();
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800 text-left border-t-2 border-zinc-700"
+          >
+            <ArrowUpFromLine className="w-4 h-4" />
+            Restore .json
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              setOpen(false);
+              const ok = await confirm({
+                title: 'Backup as JSON',
+                message: 'Download a lossless JSON backup of every season?',
+                confirmText: 'Download',
+              });
+              if (ok) onExportJson();
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800 text-left border-t border-zinc-800"
+          >
+            <ArrowDownToLine className="w-4 h-4" />
+            Backup .json
+          </button>
         </div>
       )}
     </div>
@@ -180,6 +231,8 @@ export function ScheduleGrid({
   onAddAnime,
   onImport,
   onExport,
+  onImportJson,
+  onExportJson,
   onToggleFavorite,
   onToggleInterested,
   isFavorited,
@@ -281,6 +334,8 @@ export function ScheduleGrid({
         <ImportExportMenu
           onImport={onImport}
           onExport={onExport}
+          onImportJson={onImportJson}
+          onExportJson={onExportJson}
           importing={importing}
           exporting={exporting}
         />
