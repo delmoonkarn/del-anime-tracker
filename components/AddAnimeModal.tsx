@@ -17,6 +17,11 @@ import { useDebounce } from '@/hooks/useDebounce';
 interface Props {
   open: boolean;
   initial?: AnimeEntry | null;
+  /** When adding a new entry and the user picks a search result whose
+   *  AniList ID already exists elsewhere in the tracker, prefill the
+   *  airing-slot fields from that sibling. Caller returns null when no
+   *  sibling exists or when the anilistId is 0 (unbound). */
+  findSiblingForAnilist?: (anilistId: number) => AnimeEntry | null;
   onClose: () => void;
   onSave: (entry: AnimeEntry) => void;
 }
@@ -44,7 +49,13 @@ function englishTitle(m: AnilistMedia): string {
   return eng && eng !== primaryTitle(m) ? eng : '';
 }
 
-export function AddAnimeModal({ open, initial, onClose, onSave }: Props) {
+export function AddAnimeModal({
+  open,
+  initial,
+  findSiblingForAnilist,
+  onClose,
+  onSave,
+}: Props) {
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounce(query, 450);
   const [results, setResults] = useState<AnilistMedia[]>([]);
@@ -237,6 +248,15 @@ export function AddAnimeModal({ open, initial, onClose, onSave }: Props) {
                             });
                             setTitle(main);
                             setTitleEnglish(eng);
+                            // Sibling prefill (only when adding fresh, not
+                            // editing). If another entry in any season has
+                            // the same AniList ID, copy its airing-slot
+                            // fields so the user doesn't retype them.
+                            // Sibling wins over AniList-derived defaults.
+                            const sibling =
+                              !initial && findSiblingForAnilist
+                                ? findSiblingForAnilist(r.id)
+                                : null;
                             // Auto-fill day/time from AniList. Prefer
                             // nextAiringEpisode (gives both day + time);
                             // fall back to startDate for finished shows
@@ -247,10 +267,21 @@ export function AddAnimeModal({ open, initial, onClose, onSave }: Props) {
                               r.nextAiringEpisode?.airingAt ?? null,
                             );
                             const dayHint =
-                              fromAiring?.day ?? deriveDayFromStartDate(r.startDate);
-                            const timeHint = fromAiring?.time;
+                              sibling?.day ??
+                              fromAiring?.day ??
+                              deriveDayFromStartDate(r.startDate);
+                            const timeHint = sibling?.time || fromAiring?.time;
                             if (!day && dayHint) setDay(dayHint);
                             if (!time && timeHint) setTime(timeHint);
+                            if (!platform && sibling?.platform) {
+                              setPlatform(sibling.platform);
+                            }
+                            if (!platformUrl && sibling?.platformUrl) {
+                              setPlatformUrl(sibling.platformUrl);
+                            }
+                            if (!status && sibling?.status) {
+                              setStatus(sibling.status);
+                            }
                             setQuery('');
                             setResults([]);
                           }}

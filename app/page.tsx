@@ -428,6 +428,19 @@ export default function HomePage() {
         targetId = existing.id;
         if (existing.animes.some((a) => a.anilistId === item.anilistId)) return prev;
       }
+      // Sibling lookup: most-recently-added entry with the same AniList ID
+      // across all seasons. Used to prefill airing-slot fields so adding a
+      // new cour of a split-cour show doesn't make you retype day/time/
+      // platform/note. Sibling wins over AniList-derived defaults because
+      // the user's manual choices on a prior cour are more authoritative
+      // than what AniList currently reports.
+      const sibling =
+        item.anilistId > 0
+          ? prev.seasons
+              .flatMap((s) => s.animes)
+              .filter((a) => a.anilistId === item.anilistId)
+              .sort((a, b) => b.addedAt - a.addedAt)[0]
+          : undefined;
       // Prefer airing-based derivation (gives both day + time). Fall back to
       // startDate for finished shows so we still slot the card into the right
       // weekday column even if AniList no longer reports a future airing.
@@ -440,11 +453,11 @@ export default function HomePage() {
         title: item.title,
         titleEnglish: item.titleEnglish,
         imageUrl: item.imageUrl,
-        day: derivedDay ?? null,
-        time: derivedTime ?? '',
-        platform: '',
-        platformUrl: '',
-        status: '',
+        day: sibling?.day ?? derivedDay ?? null,
+        time: sibling?.time || derivedTime || '',
+        platform: sibling?.platform ?? '',
+        platformUrl: sibling?.platformUrl ?? '',
+        status: sibling?.status ?? '',
         // Capture the AniList episode count so the schedule card's progress
         // widget has a denominator. watchStatus/episodesWatched stay undefined
         // until the user actually engages (auto-flips on the first +).
@@ -630,17 +643,42 @@ export default function HomePage() {
 
   /** Inline-edit path from the schedule card (progress +/-, status pill).
    *  Same shape as handleSaveAnime's update branch, but doesn't append on a
-   *  miss — if the entry isn't already in the active season, this is a no-op. */
+   *  miss — if the entry isn't already in the active season, this is a no-op.
+   *
+   *  When the updated entry has anilist_id > 0, the watch fields
+   *  (watchStatus / episodesWatched / totalEpisodes / nextAiringEpisode /
+   *  nextAiringAt) are broadcast to every other entry across every season
+   *  sharing that anilist_id. This keeps React state consistent with the
+   *  anime_progress table in the DB — a split-cour show appearing in both
+   *  Fall 2025 and Winter 2026 should reflect the same watched count
+   *  immediately, not only after a page refresh. */
   const handleUpdateAnime = (entry: AnimeEntry) => {
     setState((prev) => {
       if (!prev || !activeSeason) return prev;
+      const broadcastTo = entry.anilistId > 0 ? entry.anilistId : null;
       return {
         ...prev,
-        seasons: prev.seasons.map((s) =>
-          s.id !== activeSeason.id
-            ? s
-            : { ...s, animes: s.animes.map((a) => (a.id === entry.id ? entry : a)) },
-        ),
+        seasons: prev.seasons.map((s) => ({
+          ...s,
+          animes: s.animes.map((a) => {
+            // The edited entry itself: full replace.
+            if (a.id === entry.id) return entry;
+            // Siblings (same AniList ID, different schedule rows): keep
+            // their per-entry fields (day, time, platform, note) but
+            // adopt the updated watch progress.
+            if (broadcastTo != null && a.anilistId === broadcastTo) {
+              return {
+                ...a,
+                watchStatus: entry.watchStatus,
+                episodesWatched: entry.episodesWatched,
+                totalEpisodes: entry.totalEpisodes,
+                nextAiringEpisode: entry.nextAiringEpisode,
+                nextAiringAt: entry.nextAiringAt,
+              };
+            }
+            return a;
+          }),
+        })),
       };
     });
   };
@@ -1118,6 +1156,19 @@ export default function HomePage() {
       <AddAnimeModal
         open={modalOpen}
         initial={editing}
+        // Lookup used by the modal to prefill day/time/platform/platformUrl/
+        // status when the user picks a search result whose AniList ID
+        // already exists in another season — so adding a new cour doesn't
+        // mean retyping the broadcast slot. Returns the most-recently-added
+        // sibling so the latest user edits propagate.
+        findSiblingForAnilist={(anilistId) => {
+          if (!state || anilistId <= 0) return null;
+          const matches = state.seasons
+            .flatMap((s) => s.animes)
+            .filter((a) => a.anilistId === anilistId);
+          if (matches.length === 0) return null;
+          return matches.sort((a, b) => b.addedAt - a.addedAt)[0];
+        }}
         onClose={() => {
           setModalOpen(false);
           setEditing(null);

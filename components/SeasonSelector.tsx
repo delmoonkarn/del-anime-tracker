@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   Compass,
+  Download,
   Heart,
   Pencil,
   Plus,
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { DiscoverVariant, Season } from '@/lib/types';
 import { getCurrentSeasonName, seasonRank } from '@/lib/utils';
+import { useConfirm } from './ConfirmDialog';
 
 interface Props {
   seasons: Season[];
@@ -41,6 +43,27 @@ export function SeasonSelector({
   const [discoverOpen, setDiscoverOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const discoverRef = useRef<HTMLDivElement>(null);
+  const confirm = useConfirm();
+
+  /** Confirmation-gated DB zip download. <a download> alone would
+   *  fire immediately; this lets the user back out if they misclicked. */
+  async function handleDbDownload() {
+    const ok = await confirm({
+      title: 'Download database backup',
+      message:
+        'Download a zip of your current database (anime-tracker.db)? The WAL is flushed first so the file is a clean point-in-time snapshot.',
+      confirmText: 'Download',
+    });
+    if (!ok) return;
+    // Programmatic click on a temporary <a> so the browser handles the
+    // Content-Disposition filename and save dialog.
+    const a = document.createElement('a');
+    a.href = '/api/db-zip';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
 
   const activeSeason = seasons.find((s) => s.id === activeSeasonId) ?? null;
   const currentSeasonName = getCurrentSeasonName().toLowerCase();
@@ -345,6 +368,18 @@ export function SeasonSelector({
             </div>
           )}
         </div>
+
+        {/* DB zip backup — confirmation-gated. On confirm, fires a
+            programmatic click that hits /api/db-zip and the browser
+            handles the save dialog from the Content-Disposition header. */}
+        <button
+          type="button"
+          onClick={handleDbDownload}
+          className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition-colors shrink-0"
+          title="Download database as .zip"
+        >
+          <Download className="w-4 h-4" />
+        </button>
       </div>
     </div>
   );

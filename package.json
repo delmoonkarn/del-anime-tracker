@@ -12,6 +12,7 @@
   "dependencies": {
     "better-sqlite3": "^11.3.0",
     "exceljs": "^4.4.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.408.0",
     "next": "^14.2.5",
     "react": "^18.3.1",

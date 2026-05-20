@@ -107,6 +107,22 @@ db.exec(`
     start_day INTEGER,
     added_at INTEGER NOT NULL
   );
+
+  /* Watch progress, keyed by AniList ID. One row per show, shared across
+     every anime_entries row that references the same anilist_id (e.g. a
+     split-cour show in Fall 2025 + Winter 2026 schedule sheets). On read,
+     readAppState LEFT JOINs this with COALESCE so the per-entry columns
+     on anime_entries act as a fallback for unbound entries (anilist_id 0,
+     usually xlsx imports that never matched on AniList). */
+  CREATE TABLE IF NOT EXISTS anime_progress (
+    anilist_id INTEGER PRIMARY KEY,
+    watch_status TEXT,
+    episodes_watched INTEGER,
+    total_episodes INTEGER,
+    next_airing_episode INTEGER,
+    next_airing_at INTEGER,
+    updated_at INTEGER NOT NULL
+  );
 `);
 
 // One-time migration: older databases used a `hentai_favorites` table and a
@@ -180,6 +196,46 @@ try {
   console.warn('[db] watch-progress migration skipped:', err);
 }
 
+// One-shot backfill of anime_progress from anime_entries. For each AniList
+// ID that has any watch-related field populated, we collapse its rows into
+// a single progress row using MAX() per column. Picks the highest-watched
+// state, the latest cached airing data, and consolidates total_episodes.
+// (watch_status is alphabetical MAX — usually NULL for most rows so collisions
+// are rare; user can re-set via dropdown if it picks the wrong status.)
+// Gated: only runs when anime_progress is empty, so re-imports don't
+// stomp on already-shared progress.
+try {
+  const empty = (db.prepare('SELECT COUNT(*) AS n FROM anime_progress').get() as { n: number }).n === 0;
+  if (empty) {
+    const result = db.prepare(`
+      INSERT INTO anime_progress (anilist_id, watch_status, episodes_watched, total_episodes, next_airing_episode, next_airing_at, updated_at)
+      SELECT
+        anilist_id,
+        MAX(watch_status),
+        MAX(episodes_watched),
+        MAX(total_episodes),
+        MAX(next_airing_episode),
+        MAX(next_airing_at),
+        MAX(added_at)
+      FROM anime_entries
+      WHERE anilist_id > 0
+        AND (
+          watch_status IS NOT NULL
+          OR episodes_watched IS NOT NULL
+          OR total_episodes IS NOT NULL
+          OR next_airing_episode IS NOT NULL
+          OR next_airing_at IS NOT NULL
+        )
+      GROUP BY anilist_id
+    `).run();
+    if (result.changes > 0) {
+      console.info(`[db] backfilled anime_progress with ${result.changes} show(s)`);
+    }
+  }
+} catch (err) {
+  console.warn('[db] anime_progress backfill skipped:', err);
+}
+
 // One-shot wipe of `discover_cache`: pre-airing-data caches stored
 // DiscoverItems without `nextAiringEpisode`/`nextAiringAt`, which breaks the
 // auto day/time fill on Add. Gated by a kv_store flag so it only runs once.
@@ -229,7 +285,35 @@ function readAppState(): AppState | null {
   const seasonsRows = db
     .prepare('SELECT * FROM seasons ORDER BY created_at ASC')
     .all() as SeasonRow[];
-  const animesRows = db.prepare('SELECT * FROM anime_entries').all() as AnimeRow[];
+  // LEFT JOIN with anime_progress so shows that span multiple seasons read
+  // the same watch progress. COALESCE: progress table wins when present;
+  // anime_entries columns are the fallback for unbound entries (anilist_id 0,
+  // typically xlsx imports that didn't match on AniList).
+  const animesRows = db
+    .prepare(
+      `SELECT
+         ae.id,
+         ae.season_id,
+         ae.anilist_id,
+         ae.title,
+         ae.title_english,
+         ae.image_url,
+         ae.day,
+         ae.time,
+         ae.platform,
+         ae.platform_url,
+         ae.status,
+         ae.added_at,
+         COALESCE(ap.watch_status,        ae.watch_status)        AS watch_status,
+         COALESCE(ap.episodes_watched,    ae.episodes_watched)    AS episodes_watched,
+         COALESCE(ap.total_episodes,      ae.total_episodes)      AS total_episodes,
+         COALESCE(ap.next_airing_episode, ae.next_airing_episode) AS next_airing_episode,
+         COALESCE(ap.next_airing_at,      ae.next_airing_at)      AS next_airing_at
+       FROM anime_entries ae
+       LEFT JOIN anime_progress ap
+         ON ae.anilist_id > 0 AND ap.anilist_id = ae.anilist_id`,
+    )
+    .all() as AnimeRow[];
   if (seasonsRows.length === 0) return null;
 
   const grouped = new Map<string, AnimeEntry[]>();
@@ -281,9 +365,28 @@ const writeAppStateTxn = db.transaction((state: AppState) => {
       (id, season_id, anilist_id, title, title_english, image_url, day, time, platform, platform_url, status, added_at, watch_status, episodes_watched, total_episodes, next_airing_episode, next_airing_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  // For each anilist_id > 0, collect the "best" progress across all
+  // entries — defends against drift where one card got updated and its
+  // siblings still have stale values in state. Highest episodes_watched
+  // wins; that entry's other watch fields are taken too.
+  const progressByAnilistId = new Map<number, AnimeEntry>();
+  for (const s of state.seasons) {
+    for (const a of s.animes) {
+      if (!a.anilistId || a.anilistId <= 0) continue;
+      const existing = progressByAnilistId.get(a.anilistId);
+      const cur = a.episodesWatched ?? 0;
+      const prev = existing?.episodesWatched ?? 0;
+      if (!existing || cur > prev) progressByAnilistId.set(a.anilistId, a);
+    }
+  }
   for (const s of state.seasons) {
     insSeason.run(s.id, s.name, s.createdAt);
     for (const a of s.animes) {
+      // For bound entries (anilist_id > 0) the watch fields are owned by
+      // anime_progress, so we null them here to keep the source-of-truth
+      // singular. For unbound entries (anilist_id = 0) the columns ARE
+      // the source of truth — anime_progress has nothing to JOIN against.
+      const bound = (a.anilistId ?? 0) > 0;
       insAnime.run(
         a.id,
         s.id,
@@ -297,13 +400,41 @@ const writeAppStateTxn = db.transaction((state: AppState) => {
         a.platformUrl ?? null,
         a.status ?? null,
         a.addedAt,
-        a.watchStatus ?? null,
-        a.episodesWatched ?? null,
-        a.totalEpisodes ?? null,
-        a.nextAiringEpisode ?? null,
-        a.nextAiringAt ?? null,
+        bound ? null : (a.watchStatus ?? null),
+        bound ? null : (a.episodesWatched ?? null),
+        bound ? null : (a.totalEpisodes ?? null),
+        bound ? null : (a.nextAiringEpisode ?? null),
+        bound ? null : (a.nextAiringAt ?? null),
       );
     }
+  }
+  // Upsert one progress row per unique anilist_id. We don't DELETE the
+  // table first — orphaned rows (shows no longer in any season) are
+  // harmless and re-adding the show later restores the user's progress.
+  const upsertProgress = db.prepare(
+    `INSERT INTO anime_progress
+       (anilist_id, watch_status, episodes_watched, total_episodes,
+        next_airing_episode, next_airing_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(anilist_id) DO UPDATE SET
+       watch_status        = excluded.watch_status,
+       episodes_watched    = excluded.episodes_watched,
+       total_episodes      = excluded.total_episodes,
+       next_airing_episode = excluded.next_airing_episode,
+       next_airing_at      = excluded.next_airing_at,
+       updated_at          = excluded.updated_at`,
+  );
+  const now = Date.now();
+  for (const [anilistId, a] of progressByAnilistId) {
+    upsertProgress.run(
+      anilistId,
+      a.watchStatus ?? null,
+      a.episodesWatched ?? null,
+      a.totalEpisodes ?? null,
+      a.nextAiringEpisode ?? null,
+      a.nextAiringAt ?? null,
+      now,
+    );
   }
   db.prepare(
     `INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?)
@@ -539,6 +670,18 @@ function writeHFavorites(items: HFavoriteEntry[]): void {
 }
 
 // ---- Public router for the API route --------------------------------------
+
+// ---- Backup helper -------------------------------------------------------
+//
+// Returns a point-in-time snapshot of the SQLite DB as a Buffer, suitable
+// for streaming to the user as a download. The WAL checkpoint forces any
+// in-flight writes into the main .db file before we read it, so the buffer
+// is self-contained — no .db-wal/.db-shm sidecars needed to restore from it.
+
+export function readDbSnapshot(): { path: string; buffer: Buffer } {
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  return { path: DB_PATH, buffer: readFileSync(DB_PATH) };
+}
 
 export type DbKey =
   | 'state'
