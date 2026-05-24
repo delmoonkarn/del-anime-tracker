@@ -50,10 +50,6 @@ Or double-click **`run.bat`**.
 - Favorites + Interested sections, sort by released date / added date / title / score, tag filter
 - Full tag list cached per entry (card shows top 5); enrichment job backfills older entries
 
-### H
-- Separate H discovery page with date + popularity sorts, tag filter, search
-- Separate H favorites store (independent of Collection)
-
 ### Import / Export
 - **`.xlsx`** — schedule and collection each have their own format with `=IMAGE()` formulas, Thai-pastel day colors, and full watch-progress round-trip (status / watched / total columns)
 - **`.json`** — lossless scope-bounded backup for Schedule and Collection (faster than xlsx; preserves every field). Restore merges new entries and updates matching ones — never deletes
