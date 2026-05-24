@@ -415,10 +415,10 @@ export function AnimeCard({
   if (isBehind) {
     cardOuter =
       'border-orange-300 ring-[3px] ring-orange-400 shadow-[0_0_30px_rgba(249,115,22,0.65),0_0_60px_rgba(249,115,22,0.35)]';
-  } else if (isToday && isAired) {
-    cardOuter =
-      'border-amber-400 ring-2 ring-amber-500/60 shadow-lg shadow-amber-500/30';
   } else if (isToday) {
+    // Same blue highlight for both pre- and post-airing — aired status is
+    // still surfaced via the badge + time strike-through, no need for a
+    // different border color.
     cardOuter =
       'border-indigo-400 ring-2 ring-indigo-500/60 shadow-lg shadow-indigo-500/30';
   } else {
@@ -506,11 +506,7 @@ export function AnimeCard({
 
         <div
           className={`flex items-center gap-1.5 text-xs mt-1.5 ${
-            isAired
-              ? 'text-amber-400 font-semibold'
-              : isToday
-                ? 'text-indigo-300 font-semibold'
-                : 'text-zinc-300'
+            isToday ? 'text-indigo-300 font-semibold' : 'text-zinc-300'
           }`}
         >
           <Clock className="w-3.5 h-3.5" />
