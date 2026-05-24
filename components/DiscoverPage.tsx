@@ -473,7 +473,18 @@ export function DiscoverPage({
             )}
             <button
               type="button"
-              onClick={performFetch}
+              onClick={() => {
+                performFetch();
+                // Continuing isn't cached, but the in-memory list survives
+                // across re-renders — re-fetch it on Refresh so the user
+                // gets up-to-date data for both blocks in one click.
+                if (
+                  selectedSeason === defaultRef.season &&
+                  selectedYear === defaultRef.year
+                ) {
+                  fetchContinuing();
+                }
+              }}
               disabled={loading}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-sm font-medium disabled:opacity-50 disabled:cursor-wait"
               title="Refresh from AniList (ignore cache)"
