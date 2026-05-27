@@ -17,14 +17,13 @@ import type { Config } from 'tailwindcss';
  *   red     → kept red for danger (delete, errors)
  */
 const config: Config = {
-  content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}'],
+  content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       fontFamily: {
         sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
       },
       colors: {
-        // Deep navy backgrounds — overrides Tailwind's zinc scale.
         zinc: {
           50: '#FFFFFF',
           100: '#FFFFFF',
@@ -34,53 +33,49 @@ const config: Config = {
           500: '#4A5680',
           600: '#2F3866',
           700: '#1C2553',
-          800: '#0A1435', // secondary background (cards, surfaces)
-          900: '#061030', // between cards and base
-          950: '#020B24', // primary background (deepest)
+          800: '#0A1435',
+          900: '#061030',
+          950: '#020B24',
         },
-        // Electric cyan — replaces indigo for primary accent.
         indigo: {
           50:  '#E6F6FF',
           100: '#CCEDFF',
           200: '#99DBFF',
           300: '#66C9FF',
           400: '#33B6FF',
-          500: '#00A3FF', // primary accent
+          500: '#00A3FF',
           600: '#0086D1',
           700: '#0066A3',
           800: '#004D7A',
           900: '#003352',
           950: '#001F33',
         },
-        // Neon magenta — replaces rose for favorites.
         rose: {
           50:  '#FFE5FC',
           100: '#FFCCF9',
           200: '#FF99F3',
           300: '#FF66ED',
           400: '#F033E5',
-          500: '#D800E6', // favorites accent
+          500: '#D800E6',
           600: '#AE00B8',
           700: '#82008A',
           800: '#570058',
           900: '#2B0033',
           950: '#15001A',
         },
-        // Electric purple — replaces sky for interested.
         sky: {
           50:  '#F3E5FF',
           100: '#E6CCFF',
           200: '#CC99FF',
           300: '#B266FF',
           400: '#A833FF',
-          500: '#9D00FF', // interested accent
+          500: '#9D00FF',
           600: '#7E00CC',
           700: '#5E0099',
           800: '#3F0066',
           900: '#1F0033',
           950: '#10001A',
         },
-        // Brand tokens — alias if you want to call them by name explicitly.
         cyber: {
           bg: '#020B24',
           surface: '#0A1435',
@@ -93,7 +88,6 @@ const config: Config = {
         },
       },
       boxShadow: {
-        // Neon glow utility — drop on focus/active accents for the synthwave feel
         'neon-cyan': '0 0 24px -4px #00A3FF, 0 0 8px -2px #00A3FF',
         'neon-magenta': '0 0 24px -4px #D800E6, 0 0 8px -2px #D800E6',
         'neon-purple': '0 0 24px -4px #9D00FF, 0 0 8px -2px #9D00FF',

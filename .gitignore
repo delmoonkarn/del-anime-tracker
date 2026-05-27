@@ -5,6 +5,10 @@ node_modules/
 .next/
 out/
 
+# build output (Vite + esbuild)
+dist/
+dist-server/
+
 # env / secrets
 .env*
 !.env.example
@@ -30,3 +34,6 @@ data/
 /icon.ico
 /AnimeTracker.exe
 /_pkg_warmup.exe
+
+# Claude Code local settings — machine-specific, don't commit
+.claude/

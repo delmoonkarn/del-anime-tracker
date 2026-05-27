@@ -1,4 +1,4 @@
-// Orchestrates the AnimeTracker.exe build:
+// Orchestrates the ATracker.exe build:
 //   1. Patch the pkg-cached Node base binary's icon (see set-exe-icon.mjs)
 //   2. Run pkg with PKG_NODE_PATH pointed at that base so pkg (a) skips the
 //      hash check and (b) uses the same binary for bytecode compilation.
@@ -13,13 +13,14 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const cacheDir = path.join(homedir(), '.pkg-cache');
 
+// Match v22 specifically — see set-exe-icon.mjs for why.
 function findFetched() {
   if (!fs.existsSync(cacheDir)) return null;
   for (const v of fs.readdirSync(cacheDir)) {
     const vDir = path.join(cacheDir, v);
     if (!fs.statSync(vDir).isDirectory()) continue;
     for (const f of fs.readdirSync(vDir)) {
-      if (f.startsWith('fetched-') && f.includes('win-x64')) {
+      if (f.startsWith('fetched-v22.') && f.includes('win-x64')) {
         return path.join(vDir, f);
       }
     }
@@ -53,7 +54,7 @@ if (!fetched) {
 
 // Step 2: free the output path then build. PKG_NODE_PATH skips the hash
 // check AND tells pkg which Node binary to use for bytecode compilation.
-const outPath = path.join(root, 'AnimeTracker.exe');
+const outPath = path.join(root, 'ATracker.exe');
 if (fs.existsSync(outPath)) {
   try {
     fs.unlinkSync(outPath);
@@ -64,8 +65,8 @@ if (fs.existsSync(outPath)) {
 
 run(
   'pkg',
-  ['launcher.js', '--target', 'node18-win-x64', '--output', 'AnimeTracker.exe'],
+  ['launcher.js', '--target', 'node22-win-x64', '--output', 'ATracker.exe'],
   { PKG_NODE_PATH: fetched },
 );
 
-console.log('\n✔ AnimeTracker.exe built with embedded icon.');
+console.log('\n✔ ATracker.exe built with embedded icon.');

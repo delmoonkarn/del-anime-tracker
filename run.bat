@@ -11,7 +11,7 @@ if errorlevel 1 (
 )
 
 if not exist "node_modules\" (
-    echo [setup] First run detected - installing dependencies...
+    echo [setup] First run - installing dependencies...
     call npm install
     if errorlevel 1 (
         echo [ERROR] npm install failed.
@@ -21,15 +21,10 @@ if not exist "node_modules\" (
 ) else (
     echo [setup] Syncing dependencies...
     call npm install --silent --no-audit --no-fund
-    if errorlevel 1 (
-        echo [ERROR] npm install failed.
-        pause
-        exit /b 1
-    )
 )
 
-echo [dev] Starting Next.js on http://localhost:3000 ...
-start "" http://localhost:3000
+echo [dev] Starting on http://localhost:5173 ...
+start "" http://localhost:5173
 call npm run dev
 
 endlocal

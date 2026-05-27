@@ -1,20 +1,29 @@
-// Anime Tracker launcher.
-// Packaged into AnimeTracker.exe via @yao-pkg/pkg. The .exe sits in the
-// project root, double-click to launch:
-//   1. install deps if node_modules is missing
-//   2. start `npm run dev`
-//   3. open the user's default browser to http://localhost:3000
-// Console window stays open so the user can read logs and stop with Ctrl+C.
+// Anime Tracker launcher (v2 — prod mode, inline server).
+// Packaged into ATracker.exe via @yao-pkg/pkg. The .exe sits in the project
+// root; double-click to launch:
+//   1. install deps if node_modules is missing (first run)
+//   2. build dist/ + dist-server/ if missing (first run after install / source change)
+//   3. require dist-server/index.cjs into this process — one Hono process
+//      serving the prebuilt SPA + API on :3001. No child spawn, no Vite,
+//      no tsx, no npm wrapper.
+//   4. open the user's default browser once the server logs "[api] listening"
+//
+// Inlining the server (rather than spawning a child `node`) sidesteps a pkg
+// quirk where spawn('node', …) on Windows gets routed back through the .exe,
+// which then shell-splits on the space in "ATracker 2 overhaul". It also
+// shaves another ~100ms off startup by avoiding the extra Node boot.
+//
+// Dev mode (HMR, watch, two ports) is still available via `npm run dev`.
 
 const { spawn, spawnSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 
-// process.execPath = the path to the running .exe.
+// process.execPath = the path to the running .exe (lives at project root).
 const projectDir = path.dirname(process.execPath);
 process.chdir(projectDir);
 
-const PORT = 3000;
+const PORT = 3001;
 const URL = `http://localhost:${PORT}`;
 
 function openBrowser(url) {
@@ -27,20 +36,14 @@ function openBrowser(url) {
 }
 
 function npmCmd() {
-  // npm on Windows is npm.cmd; on others it's npm. Pkg target is win-x64
-  // here so always npm.cmd, but keep a fallback.
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
 function fail(msg, err) {
   console.error('\n[!] ' + msg);
   if (err) console.error(err.message || err);
-  console.error('\nPress Enter to close...');
-  try {
-    require('node:readline').createInterface({ input: process.stdin }).on('line', () => process.exit(1));
-  } catch {
-    process.exit(1);
-  }
+  // Brief delay so stderr flushes before the console window closes.
+  setTimeout(() => process.exit(1), 3000);
 }
 
 console.log('========================================');
@@ -50,8 +53,9 @@ console.log('========================================\n');
 
 if (!fs.existsSync(path.join(projectDir, 'package.json'))) {
   fail(
-    'package.json not found here. Place AnimeTracker.exe inside the anime-tracker project folder.',
+    'package.json not found here. Place ATracker.exe inside the project folder.',
   );
+  return;
 }
 
 if (!fs.existsSync(path.join(projectDir, 'node_modules'))) {
@@ -68,99 +72,86 @@ if (!fs.existsSync(path.join(projectDir, 'node_modules'))) {
   console.log('');
 }
 
-console.log('[dev] Starting Next.js on ' + URL + ' ...\n');
-
-const child = spawn(npmCmd(), ['run', 'dev'], {
-  cwd: projectDir,
-  shell: true,
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
-
-let opened = false;
-const tryOpen = (text) => {
-  if (opened) return;
-  // Next 14 prints "Ready in Xms" and "Local: http://..." when ready.
-  if (text.includes('Ready in') || text.includes('Local:')) {
-    opened = true;
-    setTimeout(() => openBrowser(URL), 300);
+// Build if either output is missing. We don't try to detect source changes —
+// if the user edits code they should re-run `npm run build` themselves; the
+// .exe path is "launch the last known good build."
+const distIndex = path.join(projectDir, 'dist', 'index.html');
+const serverBundle = path.join(projectDir, 'dist-server', 'index.cjs');
+if (!fs.existsSync(distIndex) || !fs.existsSync(serverBundle)) {
+  console.log('[build] dist/ or dist-server/ missing — building (first run only)...\n');
+  const built = spawnSync(npmCmd(), ['run', 'build'], {
+    cwd: projectDir,
+    stdio: 'inherit',
+    shell: true,
+  });
+  if (built.status !== 0) {
+    fail('Build failed. Run `npm run build` manually to see the error.', built.error);
+    return;
   }
+  console.log('');
+}
+
+// Open the browser as soon as the server reports it's listening. The server
+// bundle calls console.log("[api] listening on ...") inside serve()'s ready
+// callback — we hook process.stdout.write to detect that, since we're in
+// the same process.
+const realWrite = process.stdout.write.bind(process.stdout);
+let opened = false;
+process.stdout.write = function (chunk, ...rest) {
+  const text = typeof chunk === 'string' ? chunk : chunk?.toString?.() ?? '';
+  if (!opened && text.includes('[api] listening')) {
+    opened = true;
+    // Restore the original write before opening the browser to avoid
+    // accidentally re-triggering on any later log lines that happen to
+    // contain the same substring.
+    process.stdout.write = realWrite;
+    openBrowser(URL);
+  }
+  return realWrite(chunk, ...rest);
 };
 
-child.stdout.on('data', (data) => {
-  const text = data.toString();
-  process.stdout.write(text);
-  tryOpen(text);
-});
-child.stderr.on('data', (data) => process.stderr.write(data));
-
-// As a fallback, open browser after 8s even if we didn't see the marker.
+// Fallback: open the browser after 5s even if the marker never showed up.
 setTimeout(() => {
   if (!opened) {
     opened = true;
+    process.stdout.write = realWrite;
     openBrowser(URL);
   }
-}, 8000);
+}, 5000);
 
-child.on('exit', (code) => {
-  // If we're already tearing down (user closed the window / Ctrl+C),
-  // exit immediately — no point waiting on a prompt the user can't see.
-  if (shuttingDown) {
-    process.exit(code ?? 0);
-    return;
-  }
-  console.log('\n[dev] Server stopped with code ' + code);
-  console.log('Press Enter to close...');
-  try {
-    require('node:readline')
-      .createInterface({ input: process.stdin })
-      .on('line', () => process.exit(code ?? 0));
-  } catch {
-    process.exit(code ?? 0);
-  }
-});
+// Set PORT for the server before requiring it. The bundle reads
+// process.env.PORT at module-eval time (it's used to bind the listener).
+process.env.PORT = String(PORT);
+
+console.log('[run] Starting server on ' + URL + ' ...\n');
+
+// Require the bundled server — synchronous, runs in this process. The bundle
+// pulls in Hono / JSZip from itself (esbuild inlined them) and resolves
+// better-sqlite3's native binding from ./node_modules at runtime.
+try {
+  require(serverBundle);
+} catch (err) {
+  fail('Failed to start the server.', err);
+  return;
+}
 
 // ---------- shutdown handling ----------
-// npm spawns node which spawns next which itself spawns workers — closing
-// the launcher with plain child.kill leaves orphaned grandchildren running
-// in the background. Use Windows' `taskkill /T` to walk the whole tree.
+// No child process — the server runs in this process. better-sqlite3 holds
+// the DB file lock until we exit, so just make sure the process actually
+// goes down on Ctrl+C / window close.
 
 let shuttingDown = false;
-function killTree(reason) {
+function shutdown(reason, code = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`\n[dev] Shutting down (${reason})...`);
-  if (child && child.pid && !child.killed) {
-    try {
-      // /F = force, /T = kill entire process tree rooted at this PID.
-      // spawnSync so it actually finishes before Node exits.
-      spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], {
-        stdio: 'ignore',
-        shell: true,
-      });
-    } catch {}
-  }
+  console.log(`\n[run] Shutting down (${reason})...`);
+  process.exit(code);
 }
 
-// Cover every way the launcher can be torn down:
-//   - Ctrl+C in console  → SIGINT
-//   - Ctrl+Break         → SIGBREAK
-//   - taskkill via tools → SIGTERM
-//   - console-window X   → SIGHUP (sometimes) or the process is killed
-//                          outright; the 'exit' handler is our last chance.
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) {
-  process.on(sig, () => {
-    killTree(sig);
-    process.exit(0);
-  });
+  process.on(sig, () => shutdown(sig, 0));
 }
-
-// Last-resort sync cleanup. Runs even when process.exit is called or when
-// Windows is yanking the process down.
-process.on('exit', () => killTree('exit'));
-
-// If the launcher itself crashes, still take the children down.
 process.on('uncaughtException', (err) => {
-  console.error('[dev] uncaughtException:', err);
-  killTree('uncaughtException');
-  process.exit(1);
+  console.error('[run] uncaughtException:', err);
+  shutdown('uncaughtException', 1);
 });

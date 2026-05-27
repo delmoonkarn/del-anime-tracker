@@ -33,13 +33,16 @@ if (!fs.existsSync(rceditBin)) {
   process.exit(1);
 }
 
+// Match v22 specifically — node target is node22-win-x64 (see build-exe.mjs).
+// Older v18 binaries may still be in the cache from earlier builds; ignore
+// them so we don't accidentally icon-patch the wrong version.
 function findFetched() {
   if (!fs.existsSync(cacheDir)) return null;
   for (const v of fs.readdirSync(cacheDir)) {
     const vDir = path.join(cacheDir, v);
     if (!fs.statSync(vDir).isDirectory()) continue;
     for (const f of fs.readdirSync(vDir)) {
-      if (f.startsWith('fetched-') && f.includes('win-x64')) {
+      if (f.startsWith('fetched-v22.') && f.includes('win-x64')) {
         return path.join(vDir, f);
       }
     }
@@ -50,15 +53,15 @@ function findFetched() {
 let fetched = findFetched();
 if (!fetched) {
   console.log('[icon] No pkg base in cache; triggering a download…');
-  const tmpOut = path.join(root, '_pkg_warmup.exe');
-  const launcherJs = path.join(root, 'launcher.js');
-  spawnSync('pkg', [launcherJs, '--target', 'node18-win-x64', '--output', tmpOut], {
+  // Relative paths because shell:true + absolute path with spaces (this
+  // project lives at "ATracker 2 overhaul") gets word-split on Windows.
+  spawnSync('pkg', ['launcher.js', '--target', 'node22-win-x64', '--output', '_pkg_warmup.exe'], {
     stdio: 'inherit',
     shell: true,
     cwd: root,
   });
   try {
-    fs.unlinkSync(tmpOut);
+    fs.unlinkSync(path.join(root, '_pkg_warmup.exe'));
   } catch {}
   fetched = findFetched();
 }
