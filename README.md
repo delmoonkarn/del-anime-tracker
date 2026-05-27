@@ -1,6 +1,8 @@
 # Anime Tracker
 
-Personal seasonal anime tracker with AniList integration. Tracks watch progress, manages favorites, and stores everything locally in SQLite.
+Personal seasonal anime tracker with AniList integration. Tracks watch progress, manages favorites, and stores everything locally.
+
+<img width="1286" height="918" alt="image" src="https://github.com/user-attachments/assets/6b1c32c2-85a1-4272-9f94-9bfe9879c6a2" />
 
 ## Features
 
