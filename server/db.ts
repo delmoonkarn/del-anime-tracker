@@ -108,12 +108,13 @@ db.exec(`
     added_at INTEGER NOT NULL
   );
 
-  /* Watch progress, keyed by AniList ID. One row per show, shared across
-     every anime_entries row that references the same anilist_id (e.g. a
-     split-cour show in Fall 2025 + Winter 2026 schedule sheets). On read,
-     readAppState LEFT JOINs this with COALESCE so the per-entry columns
-     on anime_entries act as a fallback for unbound entries (anilist_id 0,
-     usually xlsx imports that never matched on AniList). */
+  /* Watch progress + user score, keyed by AniList ID. One row per show,
+     shared across every anime_entries row AND every collection row that
+     references the same anilist_id (e.g. a split-cour show in Fall 2025 +
+     Winter 2026 schedule sheets, or a show in both Favorites and
+     Interested). On read, readAppState / readCollection LEFT JOIN this so
+     the same progress and rating appear on every card for the show.
+     user_score is collection-driven (1–5); schedule writes don't touch it. */
   CREATE TABLE IF NOT EXISTS anime_progress (
     anilist_id INTEGER PRIMARY KEY,
     watch_status TEXT,
@@ -121,6 +122,7 @@ db.exec(`
     total_episodes INTEGER,
     next_airing_episode INTEGER,
     next_airing_at INTEGER,
+    user_score INTEGER,
     updated_at INTEGER NOT NULL
   );
 `);
@@ -201,6 +203,19 @@ try {
   }
 } catch (err) {
   console.warn('[db] watch-progress migration skipped:', err);
+}
+
+// Add `user_score` column to `anime_progress` if it's missing (old DBs).
+// Stores the user's 1–5 rating for a show, broadcast from the collection
+// card. Schedule writes never touch this column.
+try {
+  const cols = db.prepare("PRAGMA table_info(anime_progress)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'user_score')) {
+    db.exec('ALTER TABLE anime_progress ADD COLUMN user_score INTEGER');
+    console.info('[db] added anime_progress.user_score column');
+  }
+} catch (err) {
+  console.warn('[db] user_score migration skipped:', err);
 }
 
 // One-shot backfill of anime_progress from anime_entries. For each AniList
@@ -475,6 +490,10 @@ interface CollectionRow {
   start_day: number | null;
   added_at: number;
   tags_full: number | null;
+  // From the JOINed anime_progress row (NULL when no progress saved yet).
+  watch_status: string | null;
+  episodes_watched: number | null;
+  user_score: number | null;
 }
 
 function rowToCollectionEntry(r: CollectionRow): CollectionEntry {
@@ -496,11 +515,28 @@ function rowToCollectionEntry(r: CollectionRow): CollectionEntry {
     startDate,
     addedAt: r.added_at,
     tagsFull: r.tags_full ? true : false,
+    watchStatus: (r.watch_status as WatchStatus | null) ?? undefined,
+    episodesWatched: r.episodes_watched ?? undefined,
+    userScore: r.user_score ?? undefined,
   };
 }
 
 function readCollection(): CollectionEntry[] {
-  const rows = db.prepare('SELECT * FROM collection').all() as CollectionRow[];
+  // LEFT JOIN with anime_progress so watch status / episodes / user_score
+  // ride along on each collection entry. Unbound collection rows
+  // (anilist_id = 0) get NULLs since the JOIN can't match.
+  const rows = db
+    .prepare(
+      `SELECT
+         c.*,
+         ap.watch_status,
+         ap.episodes_watched,
+         ap.user_score
+       FROM collection c
+       LEFT JOIN anime_progress ap
+         ON c.anilist_id > 0 AND ap.anilist_id = c.anilist_id`,
+    )
+    .all() as CollectionRow[];
   return rows.map(rowToCollectionEntry);
 }
 
@@ -529,6 +565,35 @@ const writeCollectionTxn = db.transaction((items: CollectionEntry[]) => {
       e.startDate?.day ?? null,
       e.addedAt,
       e.tagsFull ? 1 : 0,
+    );
+  }
+  // Persist watch_status / episodes_watched / user_score into anime_progress
+  // so collection-card edits survive a reload. ON CONFLICT only touches the
+  // three columns owned by the collection — total_episodes / next_airing_*
+  // belong to writeAppState and stay untouched here. The same anilist_id can
+  // appear twice (Favorites + Interested); broadcast keeps them identical,
+  // so we dedupe to avoid two redundant upserts.
+  const upsertProgress = db.prepare(
+    `INSERT INTO anime_progress
+       (anilist_id, watch_status, episodes_watched, user_score, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(anilist_id) DO UPDATE SET
+       watch_status     = excluded.watch_status,
+       episodes_watched = excluded.episodes_watched,
+       user_score       = excluded.user_score,
+       updated_at       = excluded.updated_at`,
+  );
+  const now = Date.now();
+  const seen = new Set<number>();
+  for (const e of items) {
+    if (!e.anilistId || e.anilistId <= 0 || seen.has(e.anilistId)) continue;
+    seen.add(e.anilistId);
+    upsertProgress.run(
+      e.anilistId,
+      e.watchStatus ?? null,
+      e.episodesWatched ?? null,
+      e.userScore ?? null,
+      now,
     );
   }
 });
