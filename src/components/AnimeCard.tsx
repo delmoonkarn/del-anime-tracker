@@ -18,6 +18,7 @@ import {
   WATCH_STATUS_LABELS,
   computeAiredEpisodes,
   formatCountdown,
+  nextProgressOnSetStatus,
 } from '@/lib/utils';
 import { useConfirm } from './ConfirmDialog';
 
@@ -222,7 +223,14 @@ function WatchProgressRow({
   };
 
   const handleSetStatus = (s: WatchStatus | null) => {
-    onUpdate({ ...entry, watchStatus: s ?? undefined });
+    // Shared auto-fill: picking COMPLETED snaps episodes to total (when
+    // known) so the counter agrees with the new status in one click.
+    const n = nextProgressOnSetStatus(s ?? undefined, watched, total);
+    onUpdate({
+      ...entry,
+      watchStatus: n.watchStatus,
+      episodesWatched: n.episodesWatched,
+    });
   };
 
   return (

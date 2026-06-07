@@ -17,11 +17,39 @@ import type {
   CollectionSection,
   CollectionSort,
   DiscoverItem,
+  ScheduleProgress,
+  WatchStatus,
 } from '@/lib/types';
+import {
+  WATCH_STATUSES,
+  WATCH_STATUS_CLASS,
+  WATCH_STATUS_SHORT,
+} from '@/lib/utils';
 import { DiscoverCard } from './DiscoverCard';
 import { TagFilterPicker } from './TagFilterPicker';
 import { AddToCollectionModal } from './AddToCollectionModal';
 import { useConfirm } from './ConfirmDialog';
+
+/** Extra "filter bucket" for entries that aren't on the schedule (or are on
+ *  the schedule but have never been touched — same end-user meaning). */
+const UNTRACKED = 'UNTRACKED' as const;
+type StatusFilter = WatchStatus | typeof UNTRACKED;
+
+const STATUS_FILTER_OPTIONS: StatusFilter[] = [...WATCH_STATUSES, UNTRACKED];
+
+const STATUS_FILTER_LABEL: Record<StatusFilter, string> = {
+  WATCHING: WATCH_STATUS_SHORT.WATCHING,
+  COMPLETED: WATCH_STATUS_SHORT.COMPLETED,
+  DROPPED: WATCH_STATUS_SHORT.DROPPED,
+  ON_HOLD: WATCH_STATUS_SHORT.ON_HOLD,
+  PLAN: WATCH_STATUS_SHORT.PLAN,
+  UNTRACKED: 'Untracked',
+};
+
+const STATUS_FILTER_CLASS: Record<StatusFilter, string> = {
+  ...WATCH_STATUS_CLASS,
+  UNTRACKED: 'bg-zinc-800/70 text-zinc-300 border-zinc-700',
+};
 
 interface Props {
   section: CollectionSection;
@@ -33,6 +61,15 @@ interface Props {
   onImportJson: (file: File) => void;
   onExportJson: () => void;
   importing?: boolean;
+  /** anilistId → watch progress from the Schedule, mirrored onto collection
+   *  cards so favorites/interested entries show "Watching · 3/12" etc. */
+  progressByAnilistId?: Map<number, ScheduleProgress>;
+  /** When present, the collection card's progress row becomes editable:
+   *  status pill turns into a dropdown, counter gets +/- buttons. Updates
+   *  flow back through App and broadcast to all matching schedule entries. */
+  onUpdateProgress?: (anilistId: number, next: ScheduleProgress) => void;
+  /** Set / clear the user's personal 1–5 rating for the collection item. */
+  onSetUserScore?: (anilistId: number, score: number | null) => void;
 }
 
 function compareReleaseDateAsc(a: CollectionEntry, b: CollectionEntry) {
@@ -55,11 +92,18 @@ export function CollectionPage({
   onImportJson,
   onExportJson,
   importing,
+  progressByAnilistId,
+  onUpdateProgress,
+  onSetUserScore,
 }: Props) {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<CollectionSort>('RELEASED_NEW');
   const [addOpen, setAddOpen] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  // Multi-select status filter — empty set means "no filter, show everything".
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<StatusFilter>>(
+    new Set(),
+  );
   const [allTags, setAllTags] = useState<AnilistTag[] | null>(null);
   const [exporting, setExporting] = useState(false);
   const [ioMenuOpen, setIoMenuOpen] = useState(false);
@@ -81,10 +125,11 @@ export function CollectionPage({
     return () => document.removeEventListener('mousedown', h);
   }, [ioMenuOpen]);
 
-  // Reset search/sort/tags when switching section so each page feels fresh.
+  // Reset search/sort/tags/status when switching section so each page feels fresh.
   useEffect(() => {
     setSearch('');
     setSelectedTags([]);
+    setSelectedStatuses(new Set());
   }, [section]);
 
   // Load tags once (with localStorage cache).
@@ -130,6 +175,16 @@ export function CollectionPage({
     const tagSet = new Set(selectedTags);
     filtered = filtered.filter((c) => c.tags.some((t) => tagSet.has(t)));
   }
+  // Filter by selected watch statuses (any match). UNTRACKED matches anything
+  // that doesn't show up in the schedule progress map OR is there but with no
+  // watchStatus assigned yet.
+  if (selectedStatuses.size > 0) {
+    filtered = filtered.filter((c) => {
+      const ws = progressByAnilistId?.get(c.anilistId)?.watchStatus;
+      const bucket: StatusFilter = ws ?? UNTRACKED;
+      return selectedStatuses.has(bucket);
+    });
+  }
 
   const sorted = [...filtered].sort((a, b) => {
     switch (sort) {
@@ -146,7 +201,9 @@ export function CollectionPage({
       case 'TITLE_ZA':
         return b.title.localeCompare(a.title);
       case 'SCORE_DESC':
-        return (b.averageScore ?? -1) - (a.averageScore ?? -1);
+        // Sort by the user's own 1–5 rating now that AniList's average score
+        // is hidden on collection cards. Unrated entries sink to the bottom.
+        return (b.userScore ?? -1) - (a.userScore ?? -1);
     }
   });
 
@@ -411,6 +468,48 @@ export function CollectionPage({
               </div>
               <div className="flex items-start gap-3">
                 <label className="text-xs text-zinc-400 font-semibold uppercase tracking-wide pt-1.5">
+                  Watch
+                </label>
+                <div className="flex-1 min-w-0 flex flex-wrap gap-1.5">
+                  {STATUS_FILTER_OPTIONS.map((s) => {
+                    const active = selectedStatuses.has(s);
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() =>
+                          setSelectedStatuses((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(s)) next.delete(s);
+                            else next.add(s);
+                            return next;
+                          })
+                        }
+                        className={`text-[11px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap transition ${
+                          active
+                            ? STATUS_FILTER_CLASS[s]
+                            : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                        }`}
+                        title={`Filter by ${STATUS_FILTER_LABEL[s]}`}
+                      >
+                        {STATUS_FILTER_LABEL[s]}
+                      </button>
+                    );
+                  })}
+                  {selectedStatuses.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStatuses(new Set())}
+                      className="text-[11px] font-medium px-2 py-0.5 rounded-full border border-transparent text-zinc-500 hover:text-zinc-300"
+                      title="Clear status filter"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <label className="text-xs text-zinc-400 font-semibold uppercase tracking-wide pt-1.5">
                   Tags
                 </label>
                 <div className="flex-1 min-w-0">
@@ -464,6 +563,26 @@ export function CollectionPage({
               onAdd={() => {}}
               favorited={entry.section === 'favorites'}
               interested={entry.section === 'interested'}
+              // Fall back to an empty progress object so the editor renders
+              // even for items that have no stored progress yet (untouched
+              // collection-only entries). totalEpisodes defaults to the
+              // AniList episode count from the entry itself.
+              progress={
+                progressByAnilistId?.get(entry.anilistId) ?? {
+                  totalEpisodes: entry.episodes,
+                }
+              }
+              onUpdateProgress={
+                onUpdateProgress
+                  ? (next) => onUpdateProgress(entry.anilistId, next)
+                  : undefined
+              }
+              userScore={entry.userScore}
+              onSetUserScore={
+                onSetUserScore
+                  ? (score) => onSetUserScore(entry.anilistId, score)
+                  : undefined
+              }
               onRemove={async () => {
                 const what =
                   entry.section === 'favorites' ? 'Favorites' : 'Interested';

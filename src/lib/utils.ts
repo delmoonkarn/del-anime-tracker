@@ -19,11 +19,63 @@ export const WATCH_STATUS_LABELS: Record<WatchStatus, string> = {
 /** Short labels for tight UI spots like filter pills on small viewports. */
 export const WATCH_STATUS_SHORT: Record<WatchStatus, string> = {
   WATCHING: 'Watching',
-  COMPLETED: 'Done',
+  COMPLETED: 'Completed',
   DROPPED: 'Dropped',
   ON_HOLD: 'Hold',
   PLAN: 'Plan',
 };
+
+/** Auto-flip rule on a + click: PLAN/undefined → WATCHING when the very first
+ *  episode is logged; WATCHING → COMPLETED when watched reaches total. Shared
+ *  by the schedule and collection cards so progress changes behave the same
+ *  no matter which view you trigger them from. */
+export function nextProgressOnInc(
+  watched: number,
+  total: number | undefined,
+  status: WatchStatus | undefined,
+): { episodesWatched: number; watchStatus: WatchStatus | undefined } {
+  const next = watched + 1;
+  let nextStatus = status;
+  if (watched === 0 && (status === undefined || status === 'PLAN')) {
+    nextStatus = 'WATCHING';
+  }
+  if (total != null && next === total) {
+    nextStatus = 'COMPLETED';
+  }
+  return { episodesWatched: next, watchStatus: nextStatus };
+}
+
+/** Auto-flip rule on a − click: COMPLETED → WATCHING when watched drops back
+ *  below total. Floors at 0. */
+export function nextProgressOnDec(
+  watched: number,
+  total: number | undefined,
+  status: WatchStatus | undefined,
+): { episodesWatched: number; watchStatus: WatchStatus | undefined } {
+  if (watched === 0) return { episodesWatched: 0, watchStatus: status };
+  const next = watched - 1;
+  let nextStatus = status;
+  if (status === 'COMPLETED' && (total == null || next < total)) {
+    nextStatus = 'WATCHING';
+  }
+  return { episodesWatched: next, watchStatus: nextStatus };
+}
+
+/** Auto-fill rule when the user picks a status manually: if they mark a show
+ *  COMPLETED, snap episodesWatched up to the total (when known) so the
+ *  counter matches the new state without an extra click. Going the other
+ *  direction (e.g. COMPLETED → WATCHING) doesn't touch episodes — that's
+ *  what the − button is for, and users sometimes want to rewatch from N. */
+export function nextProgressOnSetStatus(
+  nextStatus: WatchStatus | undefined,
+  watched: number,
+  total: number | undefined,
+): { episodesWatched: number; watchStatus: WatchStatus | undefined } {
+  if (nextStatus === 'COMPLETED' && total != null && watched < total) {
+    return { episodesWatched: total, watchStatus: nextStatus };
+  }
+  return { episodesWatched: watched, watchStatus: nextStatus };
+}
 
 /** Tailwind classes (text + bg + border) tuned to the cyberpunk palette.
  *  ON_HOLD and PLAN share neutral/warm pairs that read intuitively: paused

@@ -142,6 +142,15 @@ export interface HFavoriteEntry extends DiscoverItem {
 
 export type CollectionSection = 'favorites' | 'interested';
 
+/** Lightweight projection of an AnimeEntry's watch progress — what the
+ *  Collection page needs to mirror progress that lives on the Schedule.
+ *  Looked up by anilistId. */
+export interface ScheduleProgress {
+  watchStatus?: WatchStatus;
+  episodesWatched?: number;
+  totalEpisodes?: number;
+}
+
 export interface CollectionEntry extends DiscoverItem {
   addedAt: number;
   section: CollectionSection;
@@ -149,6 +158,16 @@ export interface CollectionEntry extends DiscoverItem {
   /** True when `tags` holds the FULL tag list (not just top 5).
    *  Older entries lack this flag → enrichment job fetches the full list. */
   tagsFull?: boolean;
+  // ---- watch progress, stored on the collection entry so favorites /
+  // interested items can be tracked even when they're not on any schedule.
+  // When the same anilistId IS on the schedule, App.tsx broadcasts edits
+  // to both sides so they stay in sync. `totalEpisodes` isn't stored
+  // because it's the AniList episode count and lives on `episodes`.
+  watchStatus?: WatchStatus;
+  episodesWatched?: number;
+  /** Your own 1–5 rating, replaces AniList's average score on the
+   *  Collection card. Optional — undefined = unrated. */
+  userScore?: number;
 }
 
 export type CollectionSort =

@@ -21,6 +21,7 @@ import type {
   DiscoverItem,
   DiscoverVariant,
   HFavoriteEntry,
+  ScheduleProgress,
   Season,
 } from '@/lib/types';
 import type { ImportProgress } from '@/lib/import';
@@ -524,6 +525,93 @@ export function App() {
     anilistId > 0 && favoritedIds.has(anilistId);
   const isInterested = (anilistId: number) =>
     anilistId > 0 && interestedIds.has(anilistId);
+
+  // Progress bridge. Build a flat map of anilistId →
+  // {watchStatus, episodesWatched, totalEpisodes} so the Collection page can
+  // surface — and edit — progress for everything. Two sources, in priority:
+  //   1. Schedule AnimeEntry rows (the canonical source when present)
+  //   2. CollectionEntry's own stored progress (for items NOT on any schedule)
+  // The handler below writes to both sources so they stay in sync no matter
+  // which side an edit comes from.
+  const scheduleProgress = new Map<number, ScheduleProgress>();
+  for (const s of state.seasons) {
+    for (const a of s.animes) {
+      if (a.anilistId <= 0 || scheduleProgress.has(a.anilistId)) continue;
+      scheduleProgress.set(a.anilistId, {
+        watchStatus: a.watchStatus,
+        episodesWatched: a.episodesWatched,
+        totalEpisodes: a.totalEpisodes,
+      });
+    }
+  }
+  // Collection-only fill-in. `episodes` on CollectionEntry is AniList's
+  // episode count — use it as the total since CollectionEntry doesn't
+  // carry a separate totalEpisodes field.
+  for (const c of collection) {
+    if (c.anilistId <= 0 || scheduleProgress.has(c.anilistId)) continue;
+    scheduleProgress.set(c.anilistId, {
+      watchStatus: c.watchStatus,
+      episodesWatched: c.episodesWatched,
+      totalEpisodes: c.episodes,
+    });
+  }
+
+  /** Set (or clear) your personal 1–5 score for a collection item. Applied
+   *  to every collection row sharing the anilistId — so a show that's in
+   *  both Favorites and Interested keeps a single, consistent rating. */
+  const handleSetUserScore = (anilistId: number, score: number | null) => {
+    if (anilistId <= 0) return;
+    setCollection((prev) =>
+      prev.map((c) =>
+        c.anilistId === anilistId
+          ? { ...c, userScore: score == null ? undefined : score }
+          : c,
+      ),
+    );
+  };
+
+  /** Broadcast a progress update to EVERY entry sharing this anilistId — both
+   *  schedule rows (across all seasons) and collection rows (favorites +
+   *  interested). Lets the Collection +/- and status pill drive the same
+   *  state the Schedule reads from, and vice-versa. */
+  const handleUpdateProgressByAnilistId = (
+    anilistId: number,
+    next: ScheduleProgress,
+  ) => {
+    if (anilistId <= 0) return;
+    setState((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        seasons: prev.seasons.map((s) => ({
+          ...s,
+          animes: s.animes.map((a) =>
+            a.anilistId === anilistId
+              ? {
+                  ...a,
+                  watchStatus: next.watchStatus,
+                  episodesWatched: next.episodesWatched,
+                  totalEpisodes: next.totalEpisodes ?? a.totalEpisodes,
+                }
+              : a,
+          ),
+        })),
+      };
+    });
+    setCollection((prev) =>
+      prev.map((c) =>
+        c.anilistId === anilistId
+          ? {
+              ...c,
+              watchStatus: next.watchStatus,
+              episodesWatched: next.episodesWatched,
+              // `episodes` (the AniList total) stays as-is — totalEpisodes
+              // from the update is for the schedule's mutable cache only.
+            }
+          : c,
+      ),
+    );
+  };
 
   const addToCollection = (item: DiscoverItem, section: CollectionSection) => {
     setCollection((prev) => {
@@ -1119,6 +1207,9 @@ export function App() {
           onImportJson={handleCollectionJsonImport}
           onExportJson={handleCollectionJsonExport}
           importing={importingCollection}
+          progressByAnilistId={scheduleProgress}
+          onUpdateProgress={handleUpdateProgressByAnilistId}
+          onSetUserScore={handleSetUserScore}
         />
       ) : !activeSeason ? (
         <EmptyState
