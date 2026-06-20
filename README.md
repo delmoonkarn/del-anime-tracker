@@ -14,7 +14,6 @@ Personal seasonal anime tracker with AniList integration. Tracks watch progress,
 ## Requirements
 
 - Node.js 22+
-- Windows (the bundled `ATracker.exe` launcher is Windows-only; the app itself is cross-platform)
 
 ## Quick start
 
