@@ -37,6 +37,11 @@ interface SelectedAnime {
   nextAiringAt?: number;
   /** AniList MediaFormat — schedule groups movies in their own block. */
   format?: string;
+  /** Carried over from a sibling entry (same AniList ID, another season) so
+   *  a continuing title doesn't reset to 0/untracked on its new cour. Unset
+   *  when there's no sibling. */
+  watchStatus?: AnimeEntry['watchStatus'];
+  episodesWatched?: number;
 }
 
 function primaryTitle(m: AnilistMedia): string {
@@ -162,8 +167,11 @@ export function AddAnimeModal({
       status,
       // Preserve any progress already tracked on the entry — editing the
       // metadata shouldn't reset the user's episode count or watch status.
-      watchStatus: initial?.watchStatus,
-      episodesWatched: initial?.episodesWatched,
+      // For a brand-new entry that matched a sibling (continuing title),
+      // `selected` carries that sibling's progress so it's linked instead
+      // of starting back at 0/untracked.
+      watchStatus: initial?.watchStatus ?? selected?.watchStatus,
+      episodesWatched: initial?.episodesWatched ?? selected?.episodesWatched,
       totalEpisodes: selected?.episodes ?? initial?.totalEpisodes,
       // Re-binding refreshes airing data; otherwise keep whatever was cached.
       nextAiringEpisode: selected?.nextAiringEpisode ?? initial?.nextAiringEpisode,
@@ -239,18 +247,6 @@ export function AddAnimeModal({
                         <button
                           type="button"
                           onClick={() => {
-                            setSelected({
-                              anilistId: r.id,
-                              title: main,
-                              titleEnglish: eng,
-                              imageUrl: r.coverImage.large || r.coverImage.medium,
-                              episodes: r.episodes ?? undefined,
-                              nextAiringEpisode: r.nextAiringEpisode?.episode ?? undefined,
-                              nextAiringAt: r.nextAiringEpisode?.airingAt ?? undefined,
-                              format: r.format ?? undefined,
-                            });
-                            setTitle(main);
-                            setTitleEnglish(eng);
                             // Sibling prefill (only when adding fresh, not
                             // editing). If another entry in any season has
                             // the same AniList ID, copy its airing-slot
@@ -260,6 +256,23 @@ export function AddAnimeModal({
                               !initial && findSiblingForAnilist
                                 ? findSiblingForAnilist(r.id)
                                 : null;
+                            setSelected({
+                              anilistId: r.id,
+                              title: main,
+                              titleEnglish: eng,
+                              imageUrl: r.coverImage.large || r.coverImage.medium,
+                              episodes: r.episodes ?? undefined,
+                              nextAiringEpisode: r.nextAiringEpisode?.episode ?? undefined,
+                              nextAiringAt: r.nextAiringEpisode?.airingAt ?? undefined,
+                              format: r.format ?? undefined,
+                              // Continuing title (e.g. a new cour): inherit
+                              // the watch progress already tracked on the
+                              // sibling instead of starting back at 0/untracked.
+                              watchStatus: sibling?.watchStatus,
+                              episodesWatched: sibling?.episodesWatched,
+                            });
+                            setTitle(main);
+                            setTitleEnglish(eng);
                             // Auto-fill day/time from AniList. Prefer
                             // nextAiringEpisode (gives both day + time);
                             // fall back to startDate for finished shows

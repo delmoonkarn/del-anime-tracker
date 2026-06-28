@@ -459,10 +459,15 @@ export function App() {
         platform: sibling?.platform ?? '',
         platformUrl: sibling?.platformUrl ?? '',
         status: sibling?.status ?? '',
+        // Continuing title (e.g. a split-cour show getting its next season
+        // added): inherit the watch progress already tracked on the
+        // sibling instead of starting back at 0/untracked. New, unrelated
+        // titles have no sibling so this stays undefined as before.
+        watchStatus: sibling?.watchStatus,
+        episodesWatched: sibling?.episodesWatched,
         // Capture the AniList episode count so the schedule card's progress
-        // widget has a denominator. watchStatus/episodesWatched stay undefined
-        // until the user actually engages (auto-flips on the first +).
-        totalEpisodes: item.episodes,
+        // widget has a denominator.
+        totalEpisodes: sibling?.totalEpisodes ?? item.episodes,
         // Airing data for the "ep N aired / X behind" indicator.
         nextAiringEpisode: item.nextAiringEpisode,
         nextAiringAt: item.nextAiringAt,
