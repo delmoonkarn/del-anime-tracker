@@ -16,6 +16,7 @@ import type {
   HFavoriteEntry,
   HPrefs,
   Season,
+  AnilistLinksCache,
   StreamLink,
   StreamLinksMap,
   WatchStatus,
@@ -141,6 +142,17 @@ db.exec(`
     created_at INTEGER NOT NULL,
     PRIMARY KEY (anilist_id, position),
     UNIQUE (anilist_id, url)
+  );
+
+  /* Cache of AniList's streaming links, one row per show (links as JSON,
+     already filtered: STREAMING only, no official site / Twitter / X, one
+     per service). Derived data: safe to clear; fetched_at drives the
+     weekly refresh. Shows AniList has no links for keep an empty row so
+     they aren't asked for again until it's stale. */
+  CREATE TABLE IF NOT EXISTS anilist_link_cache (
+    anilist_id INTEGER PRIMARY KEY,
+    fetched_at INTEGER NOT NULL,
+    links_json TEXT NOT NULL
   );
 `);
 
@@ -712,6 +724,42 @@ function writeStreamLinks(map: StreamLinksMap): void {
   writeStreamLinksTxn(map);
 }
 
+// ---- AniList link cache -----------------------------------------------------
+
+function readAnilistLinks(): AnilistLinksCache {
+  const rows = db
+    .prepare('SELECT anilist_id, fetched_at, links_json FROM anilist_link_cache')
+    .all() as { anilist_id: number; fetched_at: number; links_json: string }[];
+  const out: AnilistLinksCache = {};
+  for (const r of rows) {
+    try {
+      out[r.anilist_id] = { at: r.fetched_at, links: JSON.parse(r.links_json) as StreamLink[] };
+    } catch {
+      // A corrupt row just gets refetched.
+    }
+  }
+  return out;
+}
+
+const writeAnilistLinksTxn = db.transaction((map: AnilistLinksCache) => {
+  db.prepare('DELETE FROM anilist_link_cache').run();
+  const ins = db.prepare(
+    'INSERT INTO anilist_link_cache (anilist_id, fetched_at, links_json) VALUES (?, ?, ?)',
+  );
+  for (const [key, v] of Object.entries(map ?? {})) {
+    const id = Number(key);
+    if (!Number.isInteger(id) || id <= 0 || !v || !Array.isArray(v.links)) continue;
+    const links = v.links
+      .filter((l) => l && typeof l.url === 'string' && typeof l.site === 'string')
+      .map((l) => ({ site: l.site, url: l.url, icon: l.icon, color: l.color, fromAnilist: true }));
+    ins.run(id, Number(v.at) || Date.now(), JSON.stringify(links));
+  }
+});
+
+function writeAnilistLinks(map: AnilistLinksCache): void {
+  writeAnilistLinksTxn(map);
+}
+
 // ---- Discover cache -------------------------------------------------------
 
 interface DiscoverRow {
@@ -876,7 +924,9 @@ export type DbKey =
   | 'tags'
   | 'h-prefs'
   | 'h-favorites'
-  | 'stream-links';
+  | 'stream-links'
+  | 'anilist-links'
+  | 'link-sources';
 
 export function readByKey(key: DbKey): unknown {
   switch (key) {
@@ -894,6 +944,10 @@ export function readByKey(key: DbKey): unknown {
       return readHFavorites();
     case 'stream-links':
       return readStreamLinks();
+    case 'anilist-links':
+      return readAnilistLinks();
+    case 'link-sources':
+      return readKv('link-sources');
   }
 }
 
@@ -919,6 +973,12 @@ export function writeByKey(key: DbKey, value: unknown): void {
       return;
     case 'stream-links':
       writeStreamLinks(value as StreamLinksMap);
+      return;
+    case 'anilist-links':
+      writeAnilistLinks(value as AnilistLinksCache);
+      return;
+    case 'link-sources':
+      writeKv('link-sources', value);
       return;
   }
 }

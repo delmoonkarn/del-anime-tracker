@@ -80,18 +80,53 @@ export interface AnilistMedia {
   seasonYear?: number | null;
   /** RELEASING / FINISHED / NOT_YET_RELEASED / CANCELLED / HIATUS. */
   status?: string | null;
+  /** Links AniList lists for the show; only the STREAMING ones are used. */
+  externalLinks?: AnilistExternalLink[] | null;
 }
 
-/** A "where to watch" link: the platform + URL set on a schedule entry.
- *  (AniList's own streaming links are region-specific and unreliable, so
- *  they're deliberately not used.) */
+export interface AnilistExternalLink {
+  url: string;
+  site: string;
+  type?: string | null;
+  /** Region / language of the link ("Thai", "English", ...), null = global. */
+  language?: string | null;
+  icon?: string | null;
+  color?: string | null;
+  isDisabled?: boolean | null;
+}
+
+/** A "where to watch" link: one you added (stream_links table), or one of
+ *  AniList's streaming links (`fromAnilist`, read-only, with its icon). */
 export interface StreamLink {
   site: string;
   url: string;
+  icon?: string;
+  color?: string;
+  fromAnilist?: boolean;
 }
 
-/** Streaming links per show, keyed by AniList id (stream_links table). */
+/** Your streaming links per show, keyed by AniList id (stream_links table). */
 export type StreamLinksMap = Record<number, StreamLink[]>;
+
+/** AniList's streaming links per show, cached (anilist_link_cache table) so
+ *  every card can show them without asking AniList again. `at` = fetched. */
+export type AnilistLinksCache = Record<number, { at: number; links: StreamLink[] }>;
+
+/** One entry of AniList's catalogue of streaming services. `url` is a match
+ *  pattern ("netflix", "bilibili.tv", "v.qq.com"), not a full address. */
+export interface LinkSource {
+  site: string;
+  url: string;
+  icon: string | null;
+  color: string | null;
+}
+
+/** AniList's streaming-service catalogue, cached (kv_store) — gives your own
+ *  links the same brand icon + colour AniList's links have. */
+export interface LinkSourcesCache {
+  at: number;
+  sources: LinkSource[];
+}
 
 export interface ReleaseDate {
   year: number | null;
@@ -124,6 +159,9 @@ export interface DiscoverItem {
   nextAiringAt?: number;
   /** AniList airing status (RELEASING, FINISHED, ...). */
   status?: string;
+  /** AniList's streaming links. Undefined on items cached before this field
+   *  existed — Explore refetches those. */
+  streamLinks?: StreamLink[];
 }
 
 export interface DiscoverCacheEntry {

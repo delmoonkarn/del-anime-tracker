@@ -9,7 +9,8 @@ import type {
   StreamLink,
 } from '@/lib/types';
 import { tagsMatch } from '@/lib/utils';
-import { useLinksResolver } from '@/lib/nav';
+import { useLinksResolver, useRememberAnilistLinks } from '@/lib/nav';
+import { serviceLabel } from '@/lib/streamLinks';
 import { BTN, BTN_ICON, EYEBROW, FIELD, MENU, pillClass } from '@/lib/ui';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { ExploreCard } from './ExploreCard';
@@ -88,6 +89,7 @@ export function DiscoverPage({
   /** Streaming service names; a show passes if it is on any of them. */
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const linksOf = useLinksResolver();
+  const rememberAnilistLinks = useRememberAnilistLinks();
   /** True = hide everything except the Continuing block. Toggled by the
    *  "Continuing N" pill in the format filter row. Auto-resets when the
    *  selection moves to a non-current season (where Continuing is empty). */
@@ -172,7 +174,10 @@ export function DiscoverPage({
       (c) =>
         c.season === selectedSeason &&
         c.year === selectedYear &&
-        tagsMatch(c.tags, selectedTags),
+        tagsMatch(c.tags, selectedTags) &&
+        // Results saved while AniList links weren't fetched are refetched
+        // once so the channel icons and the service filter have data.
+        c.items.every((i) => i.streamLinks !== undefined),
     );
 
   /** Pulls currently-releasing shows that aren't already in the main season
@@ -216,6 +221,9 @@ export function DiscoverPage({
         })
         .map(toDiscoverItem);
       setContinuingItems(filtered);
+      rememberAnilistLinks(
+        Object.fromEntries(filtered.map((i) => [i.anilistId, i.streamLinks ?? []])),
+      );
     } catch (err) {
       if (controller.signal.aborted) return;
       if (err instanceof Error && err.name !== 'AbortError') {
@@ -265,7 +273,7 @@ export function DiscoverPage({
 
   const q = search.trim().toLowerCase();
   const formatFilterActive = selectedFormats.length > 0;
-  const servicesOf = (i: DiscoverItem) => linksOf(i.anilistId).map((l) => l.site);
+  const servicesOf = (i: DiscoverItem) => linksOf(i.anilistId).map(serviceLabel);
   const onSelectedService = (i: DiscoverItem) =>
     selectedServices.length === 0 || servicesOf(i).some((s) => selectedServices.includes(s));
   // Continuing-only mode hides every main-grid item. Filtered continuing
@@ -424,14 +432,19 @@ export function DiscoverPage({
   const yearOptions: number[] = [];
   for (let y = defaultRef.year + 5; y >= 1940; y--) yearOptions.push(y);
 
-  // Streaming services you've set on schedule entries for the listed shows
+  // Streaming services the listed shows are on — your links plus AniList's
   // (search-aware, like the format pills), with one sample link each for the logo.
   const serviceCounts = new Map<string, number>();
   const serviceLogo = new Map<string, StreamLink>();
   for (const i of countables) {
+    // One count per show per service, even if a show has two links for it.
+    for (const name of new Set(linksOf(i.anilistId).map(serviceLabel))) {
+      serviceCounts.set(name, (serviceCounts.get(name) ?? 0) + 1);
+    }
     for (const l of linksOf(i.anilistId)) {
-      serviceCounts.set(l.site, (serviceCounts.get(l.site) ?? 0) + 1);
-      if (!serviceLogo.has(l.site)) serviceLogo.set(l.site, l);
+      const name = serviceLabel(l);
+      // Prefer a link with AniList's brand icon for the filter's logo.
+      if (!serviceLogo.has(name) || (l.icon && !serviceLogo.get(name)!.icon)) serviceLogo.set(name, l);
     }
   }
   // A selected service stays listed even when the search hides all its shows.
@@ -728,7 +741,7 @@ function ServiceFilter({
         }`}
         aria-expanded={open}
         aria-label={`Streaming service filter: ${label}`}
-        title={list.length === 0 ? 'None of these shows has a streaming link on your schedule' : undefined}
+        title={list.length === 0 ? 'No show in this list has streaming links' : undefined}
       >
         <span className="flex min-w-0 items-center gap-1.5">
           {firstLogo ? <ServiceLogo link={firstLogo} className="h-4 w-4" /> : <Play className="h-3.5 w-3.5 opacity-60" />}

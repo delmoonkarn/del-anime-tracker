@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Clock, Compass, Heart, Loader2, Minus, MoreVertical, Pencil, Plus, Tv } from 'lucide-react';
 import type { AnilistMedia, DiscoverItem, ScheduleProgress, WatchStatus } from '@/lib/types';
-import { useOpenDetail, useWatchLinks } from '@/lib/nav';
+import { useOpenDetail, useRememberAnilistLinks, useWatchLinks } from '@/lib/nav';
+import { toAnilistLinks } from '@/lib/streamLinks';
 import { AIRING_STATUS_LABEL, BTN_ICON, BTN_PRIMARY, MENU, SURFACE, pillClass } from '@/lib/ui';
 import { formatNextAiring, nextProgressOnDec, nextProgressOnInc, nextProgressOnSetStatus } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
@@ -91,6 +92,7 @@ export function WatchlistPage({
   onEdit,
 }: Props) {
   const [fresh, setFresh] = useState<Map<number, AnilistMedia>>(new Map());
+  const rememberAnilistLinks = useRememberAnilistLinks();
   const [loading, setLoading] = useState(false);
   const [dayFilter, setDayFilter] = useState<DayFilter>('all');
   const [viewMode, setViewMode] = usePersistedViewMode('watchlistViewMode', 'list');
@@ -111,6 +113,7 @@ export function WatchlistPage({
         for (let i = 0; i < missing.length; i += 50) {
           const media = await getAnimesByIds(missing.slice(i, i + 50), controller.signal);
           if (controller.signal.aborted) return;
+          rememberAnilistLinks(Object.fromEntries(media.map((m) => [m.id, toAnilistLinks(m.externalLinks)])));
           setFresh((prev) => {
             const next = new Map(prev);
             for (const m of media) next.set(m.id, m);

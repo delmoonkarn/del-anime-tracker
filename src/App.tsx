@@ -12,10 +12,14 @@ import { CollectionPage } from '@/components/CollectionPage';
 import { WatchlistPage, type WatchItem } from '@/components/WatchlistPage';
 import { AnimeDetailPage } from '@/components/AnimeDetailPage';
 import { NavProvider, entryLink } from '@/lib/nav';
+import { brandFor, buildBrandIndex, toAnilistLinks } from '@/lib/streamLinks';
 import { useConfirm } from '@/components/ConfirmDialog';
 import type {
+  AnilistLinksCache,
+  AnilistMedia,
   AnimeEntry,
   AppState,
+  LinkSourcesCache,
   AppView,
   CollectionEntry,
   CollectionSection,
@@ -34,11 +38,15 @@ import {
   loadCollection,
   loadDiscoverCache,
   loadHFavorites,
+  loadAnilistLinks,
+  loadLinkSources,
   loadState,
   loadStreamLinks,
   saveCollection,
   saveDiscoverCache,
   saveHFavorites,
+  saveAnilistLinks,
+  saveLinkSources,
   saveState,
   saveStreamLinks,
 } from '@/lib/storage';
@@ -58,6 +66,12 @@ interface NavEntry {
   idx: number;
   scroll?: number;
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** AniList's streaming links are re-checked once a week. */
+const LINKS_TTL_MS = 7 * DAY_MS;
+/** AniList's list of streaming services (brand icons) is re-checked monthly. */
+const SOURCES_TTL_MS = 30 * DAY_MS;
 
 function guessCurrentSeason(): string {
   const now = new Date();
@@ -90,8 +104,12 @@ export function App() {
   const [collection, setCollection] = useState<CollectionEntry[]>([]);
   const [hFavorites, setHFavorites] = useState<HFavoriteEntry[]>([]);
   const [discoverCache, setDiscoverCache] = useState<DiscoverCache>({ entries: [] });
-  /** Streaming links per show (stream_links table), keyed by AniList id. */
+  /** Your streaming links per show (stream_links table), keyed by AniList id. */
   const [streamLinks, setStreamLinks] = useState<StreamLinksMap>({});
+  /** AniList's streaming links per show (anilist_link_cache table). */
+  const [anilistLinks, setAnilistLinks] = useState<AnilistLinksCache>({});
+  /** AniList's streaming-service catalogue (brand icons for your links). */
+  const [linkSources, setLinkSources] = useState<LinkSourcesCache | null>(null);
   const [importingCollection, setImportingCollection] = useState(false);
   /** AniList id of the open detail page. The page underneath stays mounted
    *  (hidden) so Explore filters and scroll survive a trip to a detail. */
@@ -107,15 +125,75 @@ export function App() {
 
   const discoverDefaultRef = useMemo(() => getCurrentAnimeSeasonRef(), []);
 
+  /** Stores AniList links fetched anywhere (Explore, Watchlist, Detail, the
+   *  background refreshers) in the shared cache. Unchanged links fetched
+   *  less than a day ago are skipped so the cache isn't rewritten for nothing. */
+  const rememberAnilistLinks = (byShow: Record<number, StreamLink[]>) => {
+    if (Object.keys(byShow).length === 0) return;
+    setAnilistLinks((prev) => {
+      const now = Date.now();
+      let next: AnilistLinksCache | null = null;
+      for (const [key, links] of Object.entries(byShow)) {
+        const id = Number(key);
+        if (!(id > 0)) continue;
+        const cur = prev[id];
+        if (cur && now - cur.at < DAY_MS && JSON.stringify(cur.links) === JSON.stringify(links)) continue;
+        next ??= { ...prev };
+        next[id] = { at: now, links };
+      }
+      return next ?? prev;
+    });
+  };
+  const rememberFromMedia = (media: AnilistMedia[]) =>
+    rememberAnilistLinks(Object.fromEntries(media.map((m) => [m.id, toAnilistLinks(m.externalLinks)])));
+  const rememberFromItems = (items: DiscoverItem[]) =>
+    rememberAnilistLinks(
+      Object.fromEntries(items.filter((i) => i.streamLinks).map((i) => [i.anilistId, i.streamLinks!])),
+    );
+
+  /** Fetches AniList links for every show on a schedule or in the collection
+   *  that has none cached, or whose cache is over a week old. Waits a few
+   *  seconds so the airing refresh / backfill go first (AniList rate limit). */
+  const refreshAnilistLinks = async (ids: number[], cache: AnilistLinksCache) => {
+    const now = Date.now();
+    const stale = [...new Set(ids)].filter((id) => id > 0 && !(cache[id] && now - cache[id].at < LINKS_TTL_MS));
+    if (stale.length === 0) return;
+    await new Promise((r) => setTimeout(r, 4000));
+    const BATCH = 50;
+    const DELAY_MS = 1200;
+    try {
+      const { getAnimesByIds } = await import('@/lib/anilist');
+      for (let i = 0; i < stale.length; i += BATCH) {
+        const chunk = stale.slice(i, i + BATCH);
+        try {
+          const media = await getAnimesByIds(chunk);
+          rememberFromMedia(media);
+          // Shows AniList returned nothing for still get an (empty) entry, so
+          // they aren't asked for again until the cache goes stale.
+          const got = new Set(media.map((m) => m.id));
+          rememberAnilistLinks(Object.fromEntries(chunk.filter((id) => !got.has(id)).map((id) => [id, []])));
+        } catch (err) {
+          console.warn(`[links] batch starting at ${i} failed:`, err);
+        }
+        if (i + BATCH < stale.length) await new Promise((r) => setTimeout(r, DELAY_MS));
+      }
+      console.info(`[links] refreshed AniList links for ${stale.length} show(s)`);
+    } catch (err) {
+      console.warn('[links] refresh failed:', err);
+    }
+  };
+
   useEffect(() => {
     (async () => {
-      const [loaded, loadedCollection, loadedDiscover, loadedHFavs, loadedLinks] =
+      const [loaded, loadedCollection, loadedDiscover, loadedHFavs, loadedLinks, loadedAnilistLinks, loadedSources] =
         await Promise.all([
           loadState(),
           loadCollection(),
           loadDiscoverCache(),
           loadHFavorites(),
           loadStreamLinks(),
+          loadAnilistLinks(),
+          loadLinkSources(),
         ]);
       // Always boot into the current calendar season's schedule. If a season
       // with that name exists in storage, switch the active season to it; if
@@ -133,7 +211,27 @@ export function App() {
       setDiscoverCache(loadedDiscover);
       setHFavorites(loadedHFavs);
       setStreamLinks(loadedLinks);
+      setAnilistLinks(loadedAnilistLinks);
+      setLinkSources(loadedSources);
       setHydrated(true);
+      // AniList's streaming-service catalogue: one request, re-checked monthly.
+      if (!loadedSources || Date.now() - loadedSources.at > SOURCES_TTL_MS) {
+        void (async () => {
+          try {
+            const { getStreamingSources } = await import('@/lib/anilist');
+            const sources = await getStreamingSources();
+            if (sources.length > 0) {
+              const cache = { at: Date.now(), sources };
+              setLinkSources(cache);
+              saveLinkSources(cache);
+            }
+          } catch (err) {
+            console.warn('[links] streaming-service catalogue fetch failed:', err);
+          }
+        })();
+      }
+      // Explore results saved earlier already carry AniList's links.
+      for (const e of loadedDiscover.entries) rememberFromItems(e.items);
 
       // One-time tag enrichment: older collection entries only had top-5 tags.
       // Pull the full tag list from AniList in batches for anything missing
@@ -154,6 +252,14 @@ export function App() {
       // Self-throttles via the "needs filling" check, so it's a no-op
       // once everything's clean.
       void backfillScheduleMetadata(initial);
+      // AniList streaming links for everything you track (weekly).
+      void refreshAnilistLinks(
+        [
+          ...initial.seasons.flatMap((s) => s.animes.map((a) => a.anilistId)),
+          ...loadedCollection.map((c) => c.anilistId),
+        ],
+        loadedAnilistLinks,
+      );
     })();
     // discoverDefaultRef is memoized once; safe to omit from deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -192,6 +298,7 @@ export function App() {
         const chunk = ids.slice(i, i + BATCH);
         try {
           const media = await getAnimesByIds(chunk);
+          rememberFromMedia(media);
           const byId = new Map(media.map((m) => [m.id, m]));
           setState((prev) => {
             if (!prev) return prev;
@@ -264,6 +371,7 @@ export function App() {
         const chunk = ids.slice(i, i + BATCH);
         try {
           const media = await getAnimesByIds(chunk);
+          rememberFromMedia(media);
           const byId = new Map(media.map((m) => [m.id, m]));
           setState((prev) => {
             if (!prev) return prev;
@@ -329,6 +437,7 @@ export function App() {
         const ids = chunk.map((e) => e.anilistId);
         try {
           const media = await getAnimesByIds(ids);
+          rememberFromMedia(media);
           const byId = new Map(media.map((m) => [m.id, m]));
           setCollection((prev) =>
             prev.map((c) => {
@@ -427,6 +536,11 @@ export function App() {
     if (!hydrated) return;
     saveStreamLinks(streamLinks);
   }, [streamLinks, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    saveAnilistLinks(anilistLinks);
+  }, [anilistLinks, hydrated]);
 
   const activeSeason: Season | null = useMemo(() => {
     if (!state) return null;
@@ -710,6 +824,11 @@ export function App() {
   for (const [id, links] of Object.entries(streamLinks)) {
     if (links.length > 0) linksByShow.set(Number(id), links);
   }
+  const anilistLinksByShow = new Map<number, StreamLink[]>();
+  for (const [id, v] of Object.entries(anilistLinks)) {
+    if (v.links.length > 0) anilistLinksByShow.set(Number(id), v.links);
+  }
+  const brandIndex = buildBrandIndex(linkSources?.sources ?? [], [...anilistLinksByShow.values()].flat());
   for (const a of state.seasons.flatMap((s) => s.animes)) {
     const url = a.platformUrl?.trim();
     if (a.anilistId <= 0 || !url) continue;
@@ -1338,7 +1457,16 @@ export function App() {
   };
 
   return (
-    <NavProvider value={{ openDetail, linksByShow, setLinks }}>
+    <NavProvider
+      value={{
+        openDetail,
+        ownLinksByShow: linksByShow,
+        anilistLinksByShow,
+        setLinks,
+        rememberAnilistLinks,
+        brandFor: (link) => brandFor(brandIndex, link),
+      }}
+    >
     <div className="min-h-screen">
       <SeasonSelector
         seasons={state.seasons}
@@ -1409,7 +1537,8 @@ export function App() {
           onToggleFavorite={toggleFavoriteFromDiscover}
           onToggleInterested={toggleInterestedFromDiscover}
           cacheEntries={discoverCache.entries}
-          onCacheUpdate={(entry: DiscoverCacheEntry) =>
+          onCacheUpdate={(entry: DiscoverCacheEntry) => {
+            rememberFromItems(entry.items);
             setDiscoverCache((prev) => {
               // Drop any prior entry for the same season/year/tags, prepend
               // the new one, cap the array at 4 (LRU eviction).
@@ -1422,8 +1551,8 @@ export function App() {
                   ),
               );
               return { entries: [entry, ...others].slice(0, 4) };
-            })
-          }
+            });
+          }}
         />
       ) : view === 'discover-h' ? (
         <HDiscoverPage

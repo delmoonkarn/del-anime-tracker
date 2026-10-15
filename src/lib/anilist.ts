@@ -5,6 +5,7 @@ import type {
   AnimeSeason,
   HDateSort,
   HPopularitySort,
+  LinkSource,
 } from './types';
 
 const ENDPOINT = 'https://graphql.anilist.co';
@@ -22,6 +23,7 @@ query ($search: String) {
       startDate { year month day }
       nextAiringEpisode { episode airingAt }
       status
+      externalLinks { url site type language icon color isDisabled }
     }
   }
 }`;
@@ -208,6 +210,7 @@ query (${params.join(', ')}) {
       startDate { year month day }
       nextAiringEpisode { episode airingAt }
       status
+      externalLinks { url site type language icon color isDisabled }
     }
   }
 }`;
@@ -420,6 +423,7 @@ query (${params.join(', ')}) {
       season
       seasonYear
       status
+      externalLinks { url site type language icon color isDisabled }
     }
   }
 }`;
@@ -485,6 +489,7 @@ query ($id: Int) {
     startDate { year month day }
     nextAiringEpisode { episode airingAt }
     status
+    externalLinks { url site type language icon color isDisabled }
   }
 }`;
   let res: Response;
@@ -522,6 +527,7 @@ query ($ids: [Int]) {
       startDate { year month day }
       nextAiringEpisode { episode airingAt }
       status
+      externalLinks { url site type language icon color isDisabled }
     }
   }
 }`;
@@ -587,6 +593,7 @@ query ($id: Int) {
     startDate { year month day }
     endDate { year month day }
     nextAiringEpisode { episode airingAt }
+    externalLinks { url site type language icon color isDisabled }
     studios(isMain: true) { nodes { name } }
     trailer { id site }
     rankings { rank type allTime }
@@ -633,4 +640,17 @@ export async function getAnimeDetail(
     throw new AnilistError(json.errors?.[0]?.message ?? 'Not found', 404);
   }
   return json.data.Media;
+}
+
+/** AniList's catalogue of streaming services (name, match pattern, brand
+ *  icon and colour). Used to give your own links a proper brand icon. */
+export async function getStreamingSources(signal?: AbortSignal): Promise<LinkSource[]> {
+  const query = `
+query {
+  ExternalLinkSourceCollection(type: STREAMING, mediaType: ANIME) { site url icon color }
+}`;
+  const res = await anilistFetch(JSON.stringify({ query }), signal);
+  if (!res.ok) throw new AnilistError(`AniList returned HTTP ${res.status}.`, res.status);
+  const json = (await res.json()) as { data?: { ExternalLinkSourceCollection?: LinkSource[] } };
+  return (json.data?.ExternalLinkSourceCollection ?? []).filter((s) => s.icon);
 }

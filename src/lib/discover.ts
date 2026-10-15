@@ -1,4 +1,5 @@
 import type { AnilistMedia, DiscoverItem } from './types';
+import { toAnilistLinks } from './streamLinks';
 
 export function stripHtml(s: string): string {
   return s
@@ -38,5 +39,6 @@ export function toDiscoverItem(m: AnilistMedia): DiscoverItem {
     nextAiringEpisode: m.nextAiringEpisode?.episode ?? undefined,
     nextAiringAt: m.nextAiringEpisode?.airingAt ?? undefined,
     status: m.status ?? undefined,
+    streamLinks: toAnilistLinks(m.externalLinks),
   };
 }

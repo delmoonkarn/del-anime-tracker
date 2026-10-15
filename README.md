@@ -10,7 +10,7 @@ Personal seasonal anime tracker with AniList integration. Tracks watch progress,
 - Watchlist: everything you're watching across all seasons, by the day the next episode airs
 - Explore anime by season via AniList, with format / tag / streaming-service filters
 - Detail page per show: progress, where to watch, facts, prequel & sequel, synopsis, trailer
-- Your own streaming links per show (several per show), shown as channel icons on the posters
+- Where to watch: your own streaming links per show (several per show) plus AniList's streaming links (cached, refreshed weekly), shown as channel icons on the posters
 - Favorites and Interested collections
 - Global AniList search from the header (press `/`)
 - Import/export

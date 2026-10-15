@@ -100,18 +100,6 @@ export const DAY_LABELS: Record<DayOfWeek, string> = {
   Sun: 'Sunday',
 };
 
-export const PLATFORM_PRESETS = [
-  'Netflix',
-  'Bilibili',
-  'Muse Asia',
-  'Crunchyroll',
-  'iQIYI',
-  'AIS PLAY',
-  'Disney+',
-  'Prime Video',
-  'YouTube',
-];
-
 export function newId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }

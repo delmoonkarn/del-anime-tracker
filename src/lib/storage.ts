@@ -6,6 +6,8 @@ import type {
   HFavoriteEntry,
   HPrefs,
   StreamLinksMap,
+  AnilistLinksCache,
+  LinkSourcesCache,
 } from './types';
 
 // Storage layer notes
@@ -28,6 +30,8 @@ const LEGACY_KEYS: Record<StorageKey, string> = {
   // No legacy localStorage for H favorites — it's a new feature.
   'h-favorites': '',
   'stream-links': '',
+  'anilist-links': '',
+  'link-sources': '',
 };
 
 type StorageKey =
@@ -37,7 +41,9 @@ type StorageKey =
   | 'tags'
   | 'h-prefs'
   | 'h-favorites'
-  | 'stream-links';
+  | 'stream-links'
+  | 'anilist-links'
+  | 'link-sources';
 
 async function readApi<T>(key: StorageKey): Promise<T | null> {
   if (typeof window === 'undefined') return null;
@@ -192,4 +198,20 @@ export async function loadStreamLinks(): Promise<StreamLinksMap> {
 
 export function saveStreamLinks(map: StreamLinksMap): void {
   scheduleSave('stream-links', map);
+}
+
+export async function loadAnilistLinks(): Promise<AnilistLinksCache> {
+  return (await loadOrMigrate<AnilistLinksCache>('anilist-links')) ?? {};
+}
+
+export function saveAnilistLinks(cache: AnilistLinksCache): void {
+  scheduleSave('anilist-links', cache);
+}
+
+export async function loadLinkSources(): Promise<LinkSourcesCache | null> {
+  return loadOrMigrate<LinkSourcesCache>('link-sources');
+}
+
+export function saveLinkSources(cache: LinkSourcesCache): void {
+  scheduleSave('link-sources', cache);
 }

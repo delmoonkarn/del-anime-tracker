@@ -18,7 +18,8 @@ import {
 import type { AnimeDetail, AnimeRelation } from '@/lib/anilist';
 import type { DiscoverItem, ScheduleProgress, StreamLink, WatchStatus } from '@/lib/types';
 import { stripHtml, toDiscoverItem } from '@/lib/discover';
-import { useOpenDetail, useSetLinks, useWatchLinks } from '@/lib/nav';
+import { useOpenDetail, useOwnLinks, useRememberAnilistLinks, useSetLinks } from '@/lib/nav';
+import { mergeLinks, toAnilistLinks } from '@/lib/streamLinks';
 import { AIRING_STATUS_LABEL, BTN, BTN_PRIMARY, EYEBROW, FIELD, FORMAT_LABEL, SURFACE } from '@/lib/ui';
 import {
   WATCH_STATUSES,
@@ -110,6 +111,7 @@ export function AnimeDetailPage(props: Props) {
   const [data, setData] = useState<AnimeDetail | null>(() => cache.get(anilistId) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const rememberAnilistLinks = useRememberAnilistLinks();
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -125,6 +127,8 @@ export function AnimeDetailPage(props: Props) {
         if (controller.signal.aborted) return;
         cache.set(anilistId, d);
         setData(d);
+        // Fresh AniList links also go to the shared cache for the cards.
+        rememberAnilistLinks({ [anilistId]: toAnilistLinks(d.externalLinks) });
       } catch (err) {
         if (controller.signal.aborted) return;
         setError(err instanceof Error ? err.message : 'Failed to load from AniList.');
@@ -482,10 +486,11 @@ function TrackingControls({
   );
 }
 
-/** Your streaming links for the show (shared with its schedule cards),
- *  editable in place. */
+/** Your links for the show (editable, shared with its cards) followed by
+ *  AniList's streaming links for services you haven't added (read-only). */
 function WhereToWatch({ anime, title }: { anime: AnimeDetail; title: string }) {
-  const links = useWatchLinks(anime.id);
+  const own = useOwnLinks(anime.id);
+  const links = mergeLinks(own, toAnilistLinks(anime.externalLinks));
   const setLinks = useSetLinks();
   const [draft, setDraft] = useState<StreamLink[] | null>(null);
   const editing = draft !== null;
@@ -500,16 +505,20 @@ function WhereToWatch({ anime, title }: { anime: AnimeDetail; title: string }) {
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-indigo-300"
-            onClick={() => setDraft(links.length > 0 ? links : [{ site: '', url: '' }])}
+            onClick={() => setDraft(own.length > 0 ? own : [{ site: '', url: '' }])}
+            title={own.length > 0 ? 'Edit your links' : 'Add your own link'}
           >
-            {links.length > 0 ? <Pencil className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-            {links.length > 0 ? 'Edit' : 'Add'}
+            {own.length > 0 ? <Pencil className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+            {own.length > 0 ? 'Edit my links' : 'Add link'}
           </button>
         )}
       </div>
       {editing ? (
         <div className="flex flex-col gap-3">
-          <LinksEditor links={draft} onChange={setDraft} />
+          <LinksEditor links={draft} onChange={setDraft} stacked />
+          <p className="text-xs text-zinc-500">
+            Your links show first. AniList's links aren't edited here; one for a service you add yourself is hidden.
+          </p>
           <div className="flex justify-end gap-2">
             <button type="button" className={BTN} onClick={() => setDraft(null)}>
               Cancel
@@ -540,13 +549,23 @@ function WhereToWatch({ anime, title }: { anime: AnimeDetail; title: string }) {
               >
                 <ServiceLogo link={l} className="h-8 w-8" />
                 <span className="truncate">{l.site}</span>
-                <ExternalLink className="ml-auto h-3.5 w-3.5 opacity-70" />
+                {l.fromAnilist && (
+                  <span
+                    className="shrink-0 rounded-full bg-zinc-800 px-1.5 py-px text-[0.625rem] font-semibold uppercase tracking-wide text-zinc-400"
+                    title="Listed by AniList"
+                  >
+                    AniList
+                  </span>
+                )}
+                <ExternalLink className="ml-auto h-3.5 w-3.5 shrink-0 opacity-70" />
               </a>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-zinc-400">No streaming links yet. Add the pages where you watch it.</p>
+        <p className="text-sm text-zinc-400">
+          No streaming links yet — AniList lists none. Add the page where you watch it.
+        </p>
       )}
       <a
         href={`https://anilist.co/anime/${anime.id}`}
