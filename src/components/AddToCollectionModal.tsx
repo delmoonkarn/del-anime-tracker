@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, Plus, Search, X } from 'lucide-react';
 import type { AnilistMedia, DiscoverItem } from '@/lib/types';
 import { useDebounce } from '@/hooks/useDebounce';
+import { DIALOG, DIALOG_BACKDROP } from '@/lib/ui';
 
 interface Props {
   open: boolean;
@@ -85,11 +86,11 @@ export function AddToCollectionModal({ open, onClose, onAdd, isInCollection }: P
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      className={`${DIALOG_BACKDROP} z-50`}
       onClick={onClose}
     >
       <div
-        className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl overflow-hidden"
+        className={`${DIALOG} w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden`}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between p-4 border-b border-zinc-800">

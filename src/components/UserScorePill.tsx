@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { MENU } from '@/lib/ui';
 
 /** Small "★ N" pill that opens a 1–5 picker. Mirrors StatusPill so the meta
  *  row of a collection card has a consistent feel. */
@@ -38,7 +39,7 @@ export function UserScorePill({
         {label}
       </button>
       {open && (
-        <div className="absolute left-0 bottom-full mb-1 w-24 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden z-30">
+        <div className={`absolute left-0 bottom-full mb-1 w-24 ${MENU}`}>
           {[5, 4, 3, 2, 1].map((s) => (
             <button
               key={s}
@@ -47,8 +48,8 @@ export function UserScorePill({
                 setOpen(false);
                 onChange(s);
               }}
-              className={`w-full text-left text-[11px] px-2.5 py-1.5 hover:bg-zinc-800 text-amber-300 ${
-                s === score ? 'bg-zinc-800/50 font-semibold' : ''
+              className={`w-full text-left text-[11px] px-2.5 py-1.5 hover:bg-zinc-700 text-amber-300 ${
+                s === score ? 'bg-zinc-700/50 font-semibold' : ''
               }`}
             >
               ★ {s}/5
@@ -61,7 +62,7 @@ export function UserScorePill({
                 setOpen(false);
                 onChange(null);
               }}
-              className="w-full text-left text-[11px] px-2.5 py-1.5 text-zinc-400 hover:bg-zinc-800 border-t border-zinc-800"
+              className="w-full text-left text-[11px] px-2.5 py-1.5 text-zinc-400 hover:bg-zinc-700 border-t border-zinc-700"
             >
               Clear
             </button>

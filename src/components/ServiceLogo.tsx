@@ -9,7 +9,7 @@ function faviconUrl(link: StreamLink): string | null {
 }
 
 /**
- * Logo for a streaming link, always a full rounded tile: the service's brand
+ * Logo for a streaming link, always a full square tile: the service's brand
  * icon on its brand colour (AniList's catalogue — for AniList's links and for
  * your own links to a service AniList knows); otherwise the site's own icon
  * filling the tile, and the first letter of the name as a last resort.
@@ -18,7 +18,7 @@ export function ServiceLogo({ link, className = 'w-5 h-5' }: { link: StreamLink;
   // The icon URL that turned out to be missing (load error or Google's globe).
   const [missing, setMissing] = useState<string | null>(null);
   const brand = useBrandFor()(link);
-  const base = `inline-grid shrink-0 place-items-center overflow-hidden rounded-[22%] ${className}`;
+  const base = `inline-grid shrink-0 place-items-center overflow-hidden ${className}`;
 
   if (brand && missing !== brand.icon) {
     const icon = brand.icon;
@@ -78,7 +78,7 @@ export function ServiceLinks({
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="rounded-[22%] shadow-md ring-1 ring-black/30 transition-transform hover:scale-110"
+          className="shadow-md ring-1 ring-black/30 transition-transform hover:scale-110"
           aria-label={`Watch ${title} on ${l.site}`}
           title={`Watch on ${l.site}`}
         >

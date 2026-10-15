@@ -15,10 +15,29 @@ import type { Config } from 'tailwindcss';
  *   amber   → kept gold for "current season" and "aired" markers
  *   emerald → kept green for success ("Added")
  *   red     → kept red for danger (delete, errors)
+ *
+ * Corners: the whole radius scale is 0, so every `rounded-*` class in the
+ * app draws a hard square corner (same trick as the colours: one place to
+ * change the look, no class names to touch).
+ *
+ * Motion: `transition` / `transition-colors` / `transition-transform` also
+ * animate `scale`, which globals.css uses for the press dip on buttons and
+ * links; `animate-pop-in` / `animate-fade-in` open menus and dialogs.
  */
 const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
+    borderRadius: {
+      none: '0',
+      sm: '0',
+      DEFAULT: '0',
+      md: '0',
+      lg: '0',
+      xl: '0',
+      '2xl': '0',
+      '3xl': '0',
+      full: '0',
+    },
     extend: {
       fontFamily: {
         sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
@@ -86,6 +105,28 @@ const config: Config = {
           text: '#E2E8F0',
           textBright: '#FFFFFF',
         },
+      },
+      transitionProperty: {
+        DEFAULT:
+          'color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter, scale',
+        colors: 'color, background-color, border-color, text-decoration-color, fill, stroke, scale',
+        transform: 'transform, scale',
+      },
+      keyframes: {
+        // Standalone translate / scale properties, so they never fight a
+        // positioned element's transform classes (e.g. -translate-x-1/2).
+        'pop-in': {
+          from: { opacity: '0', translate: '0 -4px', scale: '0.97' },
+          to: { opacity: '1', translate: '0 0', scale: '1' },
+        },
+        'fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+      },
+      animation: {
+        'pop-in': 'pop-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+        'fade-in': 'fade-in 140ms ease-out',
       },
       boxShadow: {
         'neon-cyan': '0 0 24px -4px #00A3FF, 0 0 8px -2px #00A3FF',

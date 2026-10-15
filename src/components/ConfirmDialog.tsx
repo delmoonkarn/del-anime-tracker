@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { AlertTriangle, Info, X } from 'lucide-react';
+import { DIALOG, DIALOG_BACKDROP } from '@/lib/ui';
 
 export type ConfirmKind = 'info' | 'warning' | 'danger';
 
@@ -116,11 +117,11 @@ function Dialog({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      className={`${DIALOG_BACKDROP} z-[60]`}
       onClick={onCancel}
     >
       <div
-        className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95"
+        className={`${DIALOG} w-full max-w-md overflow-hidden`}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-start gap-3 p-4 border-b border-zinc-800">

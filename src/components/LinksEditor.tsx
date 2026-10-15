@@ -27,6 +27,8 @@ export function LinksEditor({
   onChange,
   max,
   stacked = false,
+  removable = true,
+  autoFocus = false,
 }: {
   links: StreamLink[];
   onChange: (links: StreamLink[]) => void;
@@ -35,6 +37,10 @@ export function LinksEditor({
   /** URL and name on separate rows, each labelled — for narrow spots like
    *  the detail page's sidebar. */
   stacked?: boolean;
+  /** Shows the remove button on each row (off when editing a single link). */
+  removable?: boolean;
+  /** Focuses the first row's URL box when shown. */
+  autoFocus?: boolean;
 }) {
   const set = (i: number, patch: Partial<StreamLink>) =>
     onChange(links.map((l, j) => (j === i ? { ...l, ...patch } : l)));
@@ -52,6 +58,7 @@ export function LinksEditor({
             value={l.url}
             onChange={(e) => set(i, { url: e.target.value })}
             placeholder="https://…"
+            autoFocus={autoFocus && i === 0}
             aria-label="Link"
             aria-invalid={invalid}
             className={`${INPUT} w-full flex-1 ${invalid ? 'border-red-500/70' : 'border-zinc-800'}`}
@@ -67,7 +74,7 @@ export function LinksEditor({
             className={`${INPUT} border-zinc-800 ${stacked ? 'w-full' : 'w-36 shrink-0'}`}
           />
         );
-        const removeButton = (
+        const removeButton = removable && (
           <button
             type="button"
             onClick={() => onChange(links.filter((_, j) => j !== i))}

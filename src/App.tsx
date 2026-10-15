@@ -57,6 +57,7 @@ import {
   newId,
   tagsMatch,
 } from '@/lib/utils';
+import { DIALOG, DIALOG_BACKDROP } from '@/lib/ui';
 
 /** One browser-history entry: which page, which detail (if any), and the
  *  scroll position it was left at. `idx` counts entries within this app. */
@@ -1670,8 +1671,8 @@ function ImportOverlay({ progress }: { progress: ImportProgress }) {
         : 'Finishing up…';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+    <div className={`${DIALOG_BACKDROP} z-50`}>
+      <div className={`${DIALOG} p-6 w-full max-w-sm`}>
         <div className="flex items-center gap-3 mb-4">
           <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
           <h2 className="text-sm font-semibold">Importing workbook</h2>

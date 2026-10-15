@@ -33,7 +33,7 @@ import { ScheduleEntry } from './ScheduleEntry';
 import { useConfirm } from './ConfirmDialog';
 import { PageHeader } from './PageHeader';
 import { ViewModeToggle, usePersistedViewMode } from './ViewModeToggle';
-import { BTN_PRIMARY, FIELD, pillClass } from '@/lib/ui';
+import { BTN_PRIMARY, FIELD, MENU, pillClass } from '@/lib/ui';
 
 interface Props {
   animes: AnimeEntry[];
@@ -150,7 +150,7 @@ function ImportExportMenu({
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-44 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden z-30">
+        <div className={`absolute right-0 mt-2 w-44 ${MENU}`}>
           {/* Format toggle — segmented control. Picks which input the
               Import button opens AND which serializer Export runs. */}
           <div className="flex gap-0.5 p-1 m-2 bg-zinc-950 rounded-lg">
@@ -175,7 +175,7 @@ function ImportExportMenu({
               setOpen(false);
               (format === 'xlsx' ? fileRef : jsonFileRef).current?.click();
             }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800 text-left border-t border-zinc-800"
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700 text-left border-t border-zinc-700"
           >
             <ArrowUpFromLine className="w-4 h-4" />
             Import
@@ -200,7 +200,7 @@ function ImportExportMenu({
                 if (ok) onExportJson();
               }
             }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800 text-left border-t border-zinc-800"
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700 text-left border-t border-zinc-700"
           >
             <ArrowDownToLine className="w-4 h-4" />
             Export

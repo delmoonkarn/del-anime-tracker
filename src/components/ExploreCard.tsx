@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Bookmark, Check, ChevronDown, Heart, Plus, Star, Tv } from 'lucide-react';
 import type { DiscoverItem } from '@/lib/types';
 import { useOpenDetail, useWatchLinks } from '@/lib/nav';
-import { AIRING_STATUS_LABEL, FORMAT_LABEL, MENU, SURFACE } from '@/lib/ui';
+import { AIRING_STATUS_LABEL, FORMAT_LABEL, MENU, POSTER_ICON, SURFACE } from '@/lib/ui';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { ServiceLinks } from './ServiceLogo';
 
@@ -71,23 +71,23 @@ export function ExploreCard({
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-end gap-1.5 p-2">
           {interested && (
             <span
-              className="grid h-8 w-8 place-items-center rounded-full bg-black/55 text-sky-400 backdrop-blur-sm"
+              className={`${POSTER_ICON} text-sky-400`}
               title="In your Interested list"
             >
-              <Bookmark className="h-4 w-4 fill-current" />
+              <Bookmark className="h-5 w-5 fill-current" />
             </span>
           )}
           <button
             type="button"
-            className={`pointer-events-auto grid h-8 w-8 place-items-center rounded-full backdrop-blur-sm transition-colors ${
-              favorited ? 'bg-rose-500 text-white' : 'bg-black/45 text-white hover:bg-black/65'
+            className={`${POSTER_ICON} pointer-events-auto transition-colors ${
+              favorited ? 'text-rose-500' : 'text-white hover:text-rose-300'
             }`}
             aria-pressed={favorited}
             aria-label={favorited ? 'Remove from favorites' : 'Add to favorites'}
             title={favorited ? 'Remove from favorites' : 'Add to favorites'}
             onClick={onToggleFavorite}
           >
-            <Heart className={`h-4 w-4 ${favorited ? 'fill-current' : ''}`} />
+            <Heart className={`h-5 w-5 ${favorited ? 'fill-current' : ''}`} />
           </button>
         </div>
         <ServiceLinks links={links} title={item.title} className="absolute bottom-2 left-2" />
@@ -153,7 +153,7 @@ export function ExploreCard({
                   onAdd();
                   setMenuOpen(false);
                 }}
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-800 disabled:cursor-default disabled:text-indigo-300 disabled:hover:bg-transparent"
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-700 disabled:cursor-default disabled:text-indigo-300 disabled:hover:bg-transparent"
               >
                 {added ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
                 <span className="truncate">
@@ -166,7 +166,7 @@ export function ExploreCard({
                   onToggleInterested();
                   setMenuOpen(false);
                 }}
-                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-800 ${interested ? 'text-sky-300' : ''}`}
+                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-700 ${interested ? 'text-sky-300' : ''}`}
               >
                 <Bookmark className={`h-3.5 w-3.5 ${interested ? 'fill-current' : ''}`} />
                 {interested ? 'Interested' : 'Mark interested'}
@@ -177,7 +177,7 @@ export function ExploreCard({
                   onToggleFavorite();
                   setMenuOpen(false);
                 }}
-                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-800 ${favorited ? 'text-rose-300' : ''}`}
+                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-700 ${favorited ? 'text-rose-300' : ''}`}
               >
                 <Heart className={`h-3.5 w-3.5 ${favorited ? 'fill-current' : ''}`} />
                 {favorited ? 'In favorites' : 'Add to favorites'}

@@ -12,6 +12,7 @@ import {
 import type { DiscoverVariant, Season } from '@/lib/types';
 import { getCurrentSeasonName, seasonRank } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
+import { MENU, MENU_ITEM } from '@/lib/ui';
 import { useConfirm } from './ConfirmDialog';
 import { GlobalSearch } from './GlobalSearch';
 
@@ -171,7 +172,7 @@ export function SeasonSelector({
             <Menu className="h-5 w-5" />
           </button>
           {mobileOpen && (
-            <ul className="absolute left-0 mt-2 flex w-52 flex-col gap-0.5 rounded-xl border border-zinc-800 bg-zinc-900 p-1.5 shadow-2xl z-30">
+            <ul className={`absolute left-0 mt-2 flex w-52 flex-col gap-0.5 ${MENU} p-1.5`}>
               {[
                 { label: 'Schedule', active: isScheduleActive, go: onJumpHome },
                 { label: 'Explore', active: activeDiscoverVariant === 'season', go: () => onDiscover('season') },
@@ -186,7 +187,9 @@ export function SeasonSelector({
                       setMobileOpen(false);
                       void n.go();
                     }}
-                    className={`flex w-full ${navClass(n.active)}`}
+                    className={`${MENU_ITEM} text-sm font-medium ${
+                      n.active ? 'bg-indigo-500/10 text-indigo-300' : 'text-zinc-300'
+                    }`}
                   >
                     {n.label}
                   </button>
@@ -243,7 +246,7 @@ export function SeasonSelector({
             </div>
 
             {open && (
-              <div className="absolute left-0 mt-2 w-72 max-w-[90vw] bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden z-30">
+              <div className={`absolute left-0 mt-2 w-72 max-w-[90vw] ${MENU}`}>
                 <ul className="max-h-72 overflow-y-auto">
                   {sortedSeasons.map((s) => {
                     const active = s.id === activeSeasonId;
@@ -256,7 +259,7 @@ export function SeasonSelector({
                             onSelect(s.id);
                             setOpen(false);
                           }}
-                          className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-800 ${
+                          className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-700 ${
                             active ? 'bg-indigo-500/10 text-indigo-200' : 'text-zinc-200'
                           }`}
                         >
@@ -275,7 +278,7 @@ export function SeasonSelector({
                 </ul>
 
                 {/* Bottom action row: + New Season on the left, Manage pen on the right */}
-                <div className="border-t border-zinc-800 p-2 flex items-center gap-2">
+                <div className="border-t border-zinc-700 p-2 flex items-center gap-2">
                   {creating ? (
                     <form onSubmit={handleCreate} className="flex gap-1 flex-1">
                       <input
@@ -283,7 +286,7 @@ export function SeasonSelector({
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         placeholder="e.g. Winter 2026"
-                        className="flex-1 min-w-0 px-3 py-1.5 rounded-md text-sm bg-zinc-950 border border-zinc-800 focus:border-indigo-500 outline-none"
+                        className="flex-1 min-w-0 px-3 py-1.5 rounded-md text-sm bg-zinc-950 border border-zinc-700 focus:border-indigo-500 outline-none"
                       />
                       <button
                         type="submit"
@@ -296,7 +299,7 @@ export function SeasonSelector({
                     <button
                       type="button"
                       onClick={() => setCreating(true)}
-                      className="flex-1 flex items-center gap-2 px-2 py-2 text-sm text-zinc-300 hover:text-indigo-300 hover:bg-zinc-800/60 rounded-md"
+                      className="flex-1 flex items-center gap-2 px-2 py-2 text-sm text-zinc-300 hover:text-indigo-300 hover:bg-zinc-700/60 rounded-md"
                     >
                       <Plus className="w-4 h-4" />
                       New season
@@ -309,7 +312,7 @@ export function SeasonSelector({
                         onManage();
                         setOpen(false);
                       }}
-                      className="p-2 rounded-md text-zinc-400 hover:text-indigo-300 hover:bg-zinc-800/60 shrink-0"
+                      className="p-2 rounded-md text-zinc-400 hover:text-indigo-300 hover:bg-zinc-700/60 shrink-0"
                       title="Manage seasons"
                     >
                       <Pencil className="w-4 h-4" />
@@ -337,14 +340,14 @@ export function SeasonSelector({
               </button>
             </div>
             {discoverOpen && (
-              <div className="absolute left-0 mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden z-30">
+              <div className={`absolute left-0 mt-2 w-56 ${MENU}`}>
                 <button
                   type="button"
                   onClick={() => {
                     onDiscover('season');
                     setDiscoverOpen(false);
                   }}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-800 ${
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-700 ${
                     activeDiscoverVariant === 'season' ? 'bg-indigo-500/10 text-indigo-200' : 'text-zinc-200'
                   }`}
                 >
@@ -357,7 +360,7 @@ export function SeasonSelector({
                     setDiscoverOpen(false);
                     void openH();
                   }}
-                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-800 border-t border-zinc-800 ${
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-700 border-t border-zinc-700 ${
                     activeDiscoverVariant === 'h' ? 'bg-indigo-500/10 text-indigo-200' : 'text-zinc-200'
                   }`}
                 >

@@ -23,7 +23,6 @@ body,
 }
 ::-webkit-scrollbar-thumb {
   background: #1C2553;
-  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #00A3FF;
@@ -35,6 +34,27 @@ body {
     radial-gradient(ellipse 60% 40% at 0% 100%, rgba(0, 163, 255, 0.06), transparent 60%),
     radial-gradient(ellipse 60% 40% at 100% 100%, rgba(216, 0, 230, 0.05), transparent 60%);
   background-attachment: fixed;
+}
+
+/* Press dip: buttons and links shrink a touch while held, then spring back.
+   Uses the standalone `scale` property so it never fights Tailwind's
+   transform classes; the transition comes from tailwind.config.ts (the
+   transition-* utilities include `scale`) or the fallback below. */
+@layer base {
+  @media (prefers-reduced-motion: no-preference) {
+    button,
+    a[href],
+    summary {
+      transition: scale 120ms ease-out;
+    }
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  button:not(:disabled):active,
+  a[href]:active,
+  summary:active {
+    scale: 0.96;
+  }
 }
 
 ::selection {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Bookmark,
@@ -9,18 +9,20 @@ import {
   ExternalLink,
   Heart,
   Minus,
+  MoreVertical,
   Pencil,
   Plus,
   RefreshCw,
   Star,
+  Trash2,
   Tv,
 } from 'lucide-react';
 import type { AnimeDetail, AnimeRelation } from '@/lib/anilist';
 import type { DiscoverItem, ScheduleProgress, StreamLink, WatchStatus } from '@/lib/types';
 import { stripHtml, toDiscoverItem } from '@/lib/discover';
 import { useOpenDetail, useOwnLinks, useRememberAnilistLinks, useSetLinks } from '@/lib/nav';
-import { mergeLinks, toAnilistLinks } from '@/lib/streamLinks';
-import { AIRING_STATUS_LABEL, BTN, BTN_PRIMARY, EYEBROW, FIELD, FORMAT_LABEL, SURFACE } from '@/lib/ui';
+import { mergeLinks, normalizeStreamUrl, toAnilistLinks } from '@/lib/streamLinks';
+import { AIRING_STATUS_LABEL, BTN, BTN_PRIMARY, EYEBROW, FIELD, FORMAT_LABEL, MENU, MENU_ITEM, SURFACE } from '@/lib/ui';
 import {
   WATCH_STATUSES,
   WATCH_STATUS_LABELS,
@@ -29,7 +31,9 @@ import {
   nextProgressOnInc,
   nextProgressOnSetStatus,
 } from '@/lib/utils';
+import { useClickOutside } from '@/hooks/useClickOutside';
 import { LinksEditor, cleanLinks } from './LinksEditor';
+import { useConfirm } from './ConfirmDialog';
 import { ServiceLogo } from './ServiceLogo';
 
 interface Props {
@@ -486,14 +490,70 @@ function TrackingControls({
   );
 }
 
+/** Which of your links is open in the editor: its position, or 'new' for one
+ *  being added. */
+interface LinkEdit {
+  at: number | 'new';
+  draft: StreamLink;
+}
+
 /** Your links for the show (editable, shared with its cards) followed by
  *  AniList's streaming links for services you haven't added (read-only). */
 function WhereToWatch({ anime, title }: { anime: AnimeDetail; title: string }) {
   const own = useOwnLinks(anime.id);
+  // Your links come first, in your order, so links[i] is own[i] for i < own.length.
   const links = mergeLinks(own, toAnilistLinks(anime.externalLinks));
   const setLinks = useSetLinks();
-  const [draft, setDraft] = useState<StreamLink[] | null>(null);
-  const editing = draft !== null;
+  const confirm = useConfirm();
+  const [edit, setEdit] = useState<LinkEdit | null>(null);
+
+  async function remove(i: number) {
+    const ok = await confirm({
+      title: 'Remove link',
+      message: `Remove your ${own[i].site} link (${own[i].url})?`,
+      kind: 'danger',
+      confirmText: 'Remove',
+    });
+    if (ok) setLinks(anime.id, own.filter((_, j) => j !== i));
+  }
+
+  function editor(e: LinkEdit) {
+    const url = normalizeStreamUrl(e.draft.url);
+    const duplicate = url !== null && own.some((l, j) => j !== e.at && l.url === url);
+    return (
+      <form
+        className="flex flex-col gap-2"
+        // The URL box accepts "netflix.com/…" without https://; cleanLinks adds it.
+        noValidate
+        onSubmit={(ev) => {
+          ev.preventDefault();
+          if (!url || duplicate) return;
+          const next = e.at === 'new' ? [...own, e.draft] : own.map((l, j) => (j === e.at ? e.draft : l));
+          setLinks(anime.id, cleanLinks(next));
+          setEdit(null);
+        }}
+        onKeyDown={(ev) => ev.key === 'Escape' && setEdit(null)}
+      >
+        <LinksEditor
+          links={[e.draft]}
+          onChange={([draft]) => setEdit({ at: e.at, draft })}
+          max={1}
+          stacked
+          removable={false}
+          autoFocus
+        />
+        {duplicate && <p className="text-xs text-amber-300">You already have this link.</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className={BTN} onClick={() => setEdit(null)}>
+            Cancel
+          </button>
+          <button type="submit" className={BTN_PRIMARY} disabled={!url || duplicate}>
+            {e.at === 'new' ? 'Add' : 'Save'}
+          </button>
+        </div>
+      </form>
+    );
+  }
 
   return (
     <section className={`${SURFACE} p-4`} aria-labelledby={`stream-${anime.id}`}>
@@ -501,71 +561,69 @@ function WhereToWatch({ anime, title }: { anime: AnimeDetail; title: string }) {
         <h2 id={`stream-${anime.id}`} className={EYEBROW}>
           Where to watch
         </h2>
-        {!editing && (
+        {!edit && (
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-indigo-300"
-            onClick={() => setDraft(own.length > 0 ? own : [{ site: '', url: '' }])}
-            title={own.length > 0 ? 'Edit your links' : 'Add your own link'}
+            onClick={() => setEdit({ at: 'new', draft: { site: '', url: '' } })}
+            title="Add your own link"
           >
-            {own.length > 0 ? <Pencil className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-            {own.length > 0 ? 'Edit my links' : 'Add link'}
+            <Plus className="h-3.5 w-3.5" />
+            Add
           </button>
         )}
       </div>
-      {editing ? (
-        <div className="flex flex-col gap-3">
-          <LinksEditor links={draft} onChange={setDraft} stacked />
-          <p className="text-xs text-zinc-500">
-            Your links show first. AniList's links aren't edited here; one for a service you add yourself is hidden.
-          </p>
-          <div className="flex justify-end gap-2">
-            <button type="button" className={BTN} onClick={() => setDraft(null)}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className={BTN_PRIMARY}
-              onClick={() => {
-                setLinks(anime.id, cleanLinks(draft));
-                setDraft(null);
-              }}
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      ) : links.length > 0 ? (
+      {edit?.at === 'new' && <div className="mb-3">{editor(edit)}</div>}
+      {links.length > 0 ? (
         <ul className="flex flex-col gap-2">
-          {links.map((l) => (
-            <li key={l.url}>
-              <a
-                href={l.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex h-11 items-center gap-2.5 rounded-lg border border-zinc-800 bg-zinc-950/60 px-2 text-sm font-medium hover:border-indigo-500/50"
-                title={l.url}
-                aria-label={`Watch ${title} on ${l.site}`}
+          {links.map((l, i) => {
+            const mine = !l.fromAnilist;
+            if (mine && edit?.at === i) return <li key={l.url}>{editor(edit)}</li>;
+            return (
+              <li
+                key={l.url}
+                // Your links carry the accent edge; AniList's don't.
+                className={`flex h-11 items-center rounded-lg border border-zinc-800 bg-zinc-950/60 hover:border-indigo-500/50 ${
+                  mine ? 'border-l-2 border-l-indigo-500' : ''
+                }`}
               >
-                <ServiceLogo link={l} className="h-8 w-8" />
-                <span className="truncate">{l.site}</span>
-                {l.fromAnilist && (
-                  <span
-                    className="shrink-0 rounded-full bg-zinc-800 px-1.5 py-px text-[0.625rem] font-semibold uppercase tracking-wide text-zinc-400"
-                    title="Listed by AniList"
-                  >
-                    AniList
-                  </span>
+                <a
+                  href={l.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex h-full min-w-0 flex-1 items-center gap-2.5 px-2 text-sm font-medium"
+                  title={l.url}
+                  aria-label={`Watch ${title} on ${l.site}`}
+                >
+                  <ServiceLogo link={l} className="h-8 w-8" />
+                  <span className="truncate">{l.site}</span>
+                  {l.fromAnilist && (
+                    <span
+                      className="shrink-0 rounded-full bg-zinc-800 px-1.5 py-px text-[0.625rem] font-semibold uppercase tracking-wide text-zinc-400"
+                      title="Listed by AniList"
+                    >
+                      AniList
+                    </span>
+                  )}
+                  <ExternalLink className="ml-auto h-3.5 w-3.5 shrink-0 opacity-70" />
+                </a>
+                {mine && (
+                  <OwnLinkMenu
+                    site={l.site}
+                    onEdit={() => setEdit({ at: i, draft: own[i] })}
+                    onRemove={() => void remove(i)}
+                  />
                 )}
-                <ExternalLink className="ml-auto h-3.5 w-3.5 shrink-0 opacity-70" />
-              </a>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       ) : (
-        <p className="text-sm text-zinc-400">
-          No streaming links yet — AniList lists none. Add the page where you watch it.
-        </p>
+        edit === null && (
+          <p className="text-sm text-zinc-400">
+            No streaming links yet — AniList lists none. Add the page where you watch it.
+          </p>
+        )
       )}
       <a
         href={`https://anilist.co/anime/${anime.id}`}
@@ -577,6 +635,55 @@ function WhereToWatch({ anime, title }: { anime: AnimeDetail; title: string }) {
         View on AniList
       </a>
     </section>
+  );
+}
+
+/** ⋯ on one of your links: Edit / Remove. Narrow so the name keeps its room. */
+function OwnLinkMenu({ site, onEdit, onRemove }: { site: string; onEdit: () => void; onRemove: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useClickOutside(ref, open, close);
+
+  return (
+    <div ref={ref} className="relative shrink-0 pr-1">
+      <button
+        type="button"
+        className="inline-flex h-8 w-6 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label={`Edit or remove your ${site} link`}
+        title="Edit or remove"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className={`${MENU} absolute right-0 top-full mt-1 w-32 p-1 text-sm`}>
+          <button
+            type="button"
+            className={MENU_ITEM}
+            onClick={() => {
+              setOpen(false);
+              onEdit();
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </button>
+          <button
+            type="button"
+            className={`${MENU_ITEM} text-red-300`}
+            onClick={() => {
+              setOpen(false);
+              onRemove();
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Remove
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

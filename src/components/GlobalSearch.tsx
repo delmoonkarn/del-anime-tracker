@@ -163,9 +163,9 @@ export function GlobalSearch() {
                     aria-selected={i === active}
                     onPointerEnter={() => setActive(i)}
                     onClick={() => pick(m)}
-                    className={`flex cursor-pointer items-center gap-3 rounded-lg p-1.5 ${i === active ? 'bg-zinc-800' : ''}`}
+                    className={`flex cursor-pointer items-center gap-3 rounded-lg p-1.5 ${i === active ? 'bg-zinc-700' : ''}`}
                   >
-                    <div className="h-14 w-10 shrink-0 overflow-hidden rounded bg-zinc-800">
+                    <div className="h-14 w-10 shrink-0 overflow-hidden rounded bg-zinc-700">
                       {m.coverImage.medium ? (
                         <img src={m.coverImage.medium} alt="" className="h-full w-full object-cover" />
                       ) : (
@@ -189,7 +189,7 @@ export function GlobalSearch() {
                   </li>
                 ))}
               </ul>
-              <p className="flex justify-between gap-2 border-t border-zinc-800 px-4 py-2 text-xs text-zinc-500">
+              <p className="flex justify-between gap-2 border-t border-zinc-700 px-4 py-2 text-xs text-zinc-500">
                 <span>Top {results.length} matches</span>
                 <span className="hidden shrink-0 sm:inline">↑↓ · Enter</span>
               </p>

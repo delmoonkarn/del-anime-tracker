@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Bookmark, Heart, Minus, MoreVertical, Plus, Trash2, Tv } from 'lucide-react';
 import type { CollectionEntry, ScheduleProgress } from '@/lib/types';
 import { useOpenDetail, useWatchLinks } from '@/lib/nav';
-import { AIRING_STATUS_LABEL, BTN_ICON, FORMAT_LABEL, MENU, SURFACE } from '@/lib/ui';
+import { AIRING_STATUS_LABEL, BTN_ICON, FORMAT_LABEL, MENU, MENU_ITEM, POSTER_ICON, SURFACE } from '@/lib/ui';
 import { nextProgressOnDec, nextProgressOnInc, nextProgressOnSetStatus } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { StatusPill } from './StatusPill';
@@ -23,7 +23,6 @@ interface Props {
   onSetUserScore?: (score: number | null) => void;
 }
 
-const MENU_ITEM = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-800';
 
 /** Collection grid card, laid out like the Explore card: poster with heart
  *  and channel icons, title + format line, then your status / score and
@@ -87,23 +86,23 @@ export function CollectionCard({
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-end gap-1.5 p-2">
           {interested && (
             <span
-              className="grid h-8 w-8 place-items-center rounded-full bg-black/55 text-sky-400 backdrop-blur-sm"
+              className={`${POSTER_ICON} text-sky-400`}
               title="In your Interested list"
             >
-              <Bookmark className="h-4 w-4 fill-current" />
+              <Bookmark className="h-5 w-5 fill-current" />
             </span>
           )}
           <button
             type="button"
-            className={`pointer-events-auto grid h-8 w-8 place-items-center rounded-full backdrop-blur-sm transition-colors ${
-              favorited ? 'bg-rose-500 text-white' : 'bg-black/45 text-white hover:bg-black/65'
+            className={`${POSTER_ICON} pointer-events-auto transition-colors ${
+              favorited ? 'text-rose-500' : 'text-white hover:text-rose-300'
             }`}
             aria-pressed={favorited}
             aria-label={favorited ? 'Remove from favorites' : 'Add to favorites'}
             title={favorited ? 'Remove from favorites' : 'Add to favorites'}
             onClick={onToggleFavorite}
           >
-            <Heart className={`h-4 w-4 ${favorited ? 'fill-current' : ''}`} />
+            <Heart className={`h-5 w-5 ${favorited ? 'fill-current' : ''}`} />
           </button>
         </div>
         <ServiceLinks links={links} title={entry.title} className="absolute bottom-2 left-2" />

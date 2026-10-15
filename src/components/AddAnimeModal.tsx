@@ -10,6 +10,7 @@ import {
 } from '@/lib/utils';
 import { searchAnime } from '@/lib/anilist';
 import { useDebounce } from '@/hooks/useDebounce';
+import { DIALOG, DIALOG_BACKDROP } from '@/lib/ui';
 import { LinksEditor, cleanLinks } from './LinksEditor';
 
 interface Props {
@@ -210,11 +211,11 @@ export function AddAnimeModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      className={`${DIALOG_BACKDROP} z-50`}
       onClick={onClose}
     >
       <div
-        className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+        className={`${DIALOG} w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col`}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between p-4 border-b border-zinc-800">

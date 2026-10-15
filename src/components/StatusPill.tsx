@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { WatchStatus } from '@/lib/types';
 import { WATCH_STATUSES, WATCH_STATUS_CLASS, WATCH_STATUS_LABELS } from '@/lib/utils';
+import { MENU } from '@/lib/ui';
 
 /** Status dropdown — small pill that opens a floating menu of the 5 enum
  *  values plus a "Clear" option. Native <select> would be simpler but doesn't
@@ -40,7 +41,7 @@ export function StatusPill({
         {label}
       </button>
       {open && (
-        <div className="absolute left-0 bottom-full mb-1 w-32 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden z-30">
+        <div className={`absolute left-0 bottom-full mb-1 w-32 ${MENU}`}>
           {WATCH_STATUSES.map((s) => (
             <button
               key={s}
@@ -49,8 +50,8 @@ export function StatusPill({
                 setOpen(false);
                 onChange(s);
               }}
-              className={`w-full text-left text-[11px] px-2.5 py-1.5 hover:bg-zinc-800 ${
-                s === status ? 'bg-zinc-800/50 font-semibold' : ''
+              className={`w-full text-left text-[11px] px-2.5 py-1.5 hover:bg-zinc-700 ${
+                s === status ? 'bg-zinc-700/50 font-semibold' : ''
               }`}
             >
               {WATCH_STATUS_LABELS[s]}
@@ -63,7 +64,7 @@ export function StatusPill({
                 setOpen(false);
                 onChange(null);
               }}
-              className="w-full text-left text-[11px] px-2.5 py-1.5 text-zinc-400 hover:bg-zinc-800 border-t border-zinc-800"
+              className="w-full text-left text-[11px] px-2.5 py-1.5 text-zinc-400 hover:bg-zinc-700 border-t border-zinc-700"
             >
               Clear
             </button>

@@ -459,7 +459,7 @@ function WatchingEntry({
           {onEdit && (
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-800"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-700"
               onClick={() => {
                 setMenuOpen(false);
                 onEdit();
@@ -471,7 +471,7 @@ function WatchingEntry({
           )}
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-800"
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-700"
             onClick={() => {
               onToggleFavorite();
               setMenuOpen(false);

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import type { AnimeEntry, WatchStatus } from '@/lib/types';
 import { entryLink, useOpenDetail, useWatchLinks } from '@/lib/nav';
-import { BTN_ICON, MENU, SURFACE } from '@/lib/ui';
+import { BTN_ICON, MENU, MENU_ITEM, SURFACE } from '@/lib/ui';
 import {
   WATCH_STATUS_CLASS,
   WATCH_STATUS_LABELS,
@@ -46,7 +46,6 @@ interface Props {
   isAired?: boolean;
 }
 
-const MENU_ITEM = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-800';
 
 /** A schedule entry drawn like a Watchlist entry: poster card (card view) or
  *  row (list view), with the status pill, the episode stepper and a ⋯ menu
@@ -318,7 +317,7 @@ export function ScheduleEntry({
             </span>
           )}
           {marks && (
-            <span className="pointer-events-none absolute right-2 top-2 rounded-full bg-black/60 px-1.5 py-1 backdrop-blur">{marks}</span>
+            <span className="pointer-events-none absolute right-2 top-2 drop-shadow-[0_0_3px_rgba(0,0,0,0.85)]">{marks}</span>
           )}
           <ServiceLinks links={links} title={entry.title} className="absolute bottom-2 left-2" />
         </div>

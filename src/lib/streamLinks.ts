@@ -10,13 +10,16 @@ interface StreamingService {
   hosts: readonly string[];
   /** Other ways people write the name; compared ignoring case, spaces and punctuation. */
   aliases?: readonly string[];
+  /** One site, many channels (YouTube): each link is its own source, so a
+   *  link you add only replaces AniList's when it's the same address. */
+  channels?: boolean;
 }
 
 /** Services common in Thailand and worldwide. Order matters only when two could match. */
 const STREAMING_SERVICES: readonly StreamingService[] = [
   { name: 'Netflix', hosts: ['netflix.com'] },
   { name: 'Crunchyroll', hosts: ['crunchyroll.com'] },
-  { name: 'YouTube', hosts: ['youtube.com', 'youtu.be'] },
+  { name: 'YouTube', hosts: ['youtube.com', 'youtu.be'], channels: true },
   { name: 'Bilibili', hosts: ['bilibili.tv', 'bilibili.com', 'b23.tv'], aliases: ['bstation', 'bilibili tv'] },
   { name: 'iQIYI', hosts: ['iq.com', 'iqiyi.com'], aliases: ['iqiyi', 'iq'] },
   { name: 'Prime Video', hosts: ['primevideo.com'], aliases: ['amazon prime', 'prime', 'amazon prime video', 'amazon'] },
@@ -145,12 +148,22 @@ export function toAnilistLinks(links: AnilistExternalLink[] | null | undefined):
   }));
 }
 
+/** Same address, ignoring "www." and a trailing slash. */
+function sameUrl(a: string, b: string): boolean {
+  const key = (u: string) => (normalizeStreamUrl(u) ?? u).replace(/^(https?:\/\/)www\./i, '$1').replace(/\/$/, '');
+  return key(a) === key(b);
+}
+
 /** Your links first (in your order), then AniList's for services you don't
- *  already have a link for. */
+ *  already have a link for. On channel sites (YouTube) only the same
+ *  address counts: your channel doesn't hide a different one AniList lists. */
 export function mergeLinks(own: StreamLink[] | undefined, anilist: StreamLink[] | undefined): StreamLink[] {
   const out = [...(own ?? [])];
   for (const l of anilist ?? []) {
-    if (!out.some((o) => sameService(o, l))) out.push(l);
+    const covered = findService(l.url, l.site)?.channels
+      ? out.some((o) => sameUrl(o.url, l.url))
+      : out.some((o) => sameService(o, l));
+    if (!covered) out.push(l);
   }
   return out;
 }

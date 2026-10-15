@@ -756,7 +756,7 @@ function ServiceFilter({
               const logo = logos.get(s);
               return (
                 <li key={s}>
-                  <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-800">
+                  <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-700">
                     <input
                       type="checkbox"
                       className="h-3.5 w-3.5 accent-indigo-500"
@@ -776,7 +776,7 @@ function ServiceFilter({
             <button
               type="button"
               onClick={onClear}
-              className="mt-1 w-full rounded-lg py-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+              className="mt-1 w-full rounded-lg py-1 text-xs text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
             >
               Clear selection
             </button>

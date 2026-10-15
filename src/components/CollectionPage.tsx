@@ -25,7 +25,7 @@ import {
   WATCH_STATUS_CLASS,
   WATCH_STATUS_SHORT,
 } from '@/lib/utils';
-import { BTN_PRIMARY, EYEBROW, FIELD, pillClass } from '@/lib/ui';
+import { BTN_PRIMARY, EYEBROW, FIELD, MENU, pillClass } from '@/lib/ui';
 import { CollectionCard } from './CollectionCard';
 import { PageHeader } from './PageHeader';
 import { TagFilterPicker } from './TagFilterPicker';
@@ -331,7 +331,7 @@ export function CollectionPage({
               </button>
 
               {ioMenuOpen && (
-                <div className="absolute right-0 mt-2 w-44 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden z-30">
+                <div className={`absolute right-0 mt-2 w-44 ${MENU}`}>
                   {/* Format toggle — segmented control. Picks which input
                       the Import button opens AND which serializer Export
                       runs. */}
@@ -360,7 +360,7 @@ export function CollectionPage({
                         : jsonFileInputRef
                       ).current?.click();
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800 text-left border-t border-zinc-800"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700 text-left border-t border-zinc-700"
                   >
                     <ArrowUpFromLine className="w-4 h-4" />
                     Import
@@ -384,7 +384,7 @@ export function CollectionPage({
                       }
                     }}
                     disabled={collection.length === 0}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800 text-left border-t border-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700 text-left border-t border-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <ArrowDownToLine className="w-4 h-4" />
                     Export

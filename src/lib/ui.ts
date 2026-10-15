@@ -23,8 +23,26 @@ export const BTN_ICON =
 export const FIELD =
   'h-8 px-3 rounded-lg bg-zinc-950 border border-zinc-800 focus:border-indigo-500 outline-none text-sm';
 
-/** Floating menu panel under a dropdown button. */
-export const MENU = 'bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden z-30';
+/** Floating menu panel under a dropdown button. One step lighter than the
+ *  cards it opens over, with a bright border and a deep shadow, so it never
+ *  blends into what's behind it. Pops in. */
+export const MENU =
+  'bg-zinc-800 border border-zinc-600 rounded-xl shadow-[0_12px_32px_rgba(0,0,0,0.7)] overflow-hidden z-30 motion-safe:animate-pop-in';
+
+/** A dialog's panel (over the dimmed page): same border as MENU, pops in. */
+export const DIALOG =
+  'bg-zinc-900 border border-zinc-600 rounded-2xl shadow-2xl motion-safe:animate-pop-in';
+
+/** The dimmed layer behind a dialog; fades in. */
+export const DIALOG_BACKDROP =
+  'fixed inset-0 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm motion-safe:animate-fade-in';
+
+/** Favorite / Interested icon on a poster: no box behind it, just a dark
+ *  outline so it stays readable on bright artwork. */
+export const POSTER_ICON = 'grid h-8 w-8 place-items-center drop-shadow-[0_0_3px_rgba(0,0,0,0.85)]';
+
+/** A row inside a MENU (icon + label). */
+export const MENU_ITEM = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-700';
 
 /** Rounded filter chip (format pills on Explore, day pills on Watchlist). */
 export const pillClass = (active: boolean, tone: 'primary' | 'info' = 'primary') =>

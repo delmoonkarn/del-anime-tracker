@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Trash2, X } from 'lucide-react';
 import type { Season } from '@/lib/types';
+import { DIALOG, DIALOG_BACKDROP } from '@/lib/ui';
 import { useConfirm } from './ConfirmDialog';
 
 interface Props {
@@ -67,11 +68,11 @@ export function ManageSeasonsModal({ open, seasons, onClose, onDeleteMany }: Pro
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      className={`${DIALOG_BACKDROP} z-50`}
       onClick={onClose}
     >
       <div
-        className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col shadow-2xl"
+        className={`${DIALOG} w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col`}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between p-4 border-b border-zinc-800">

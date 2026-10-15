@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import type { AnilistTag } from '@/lib/types';
+import { MENU } from '@/lib/ui';
 
 interface Props {
   allTags: AnilistTag[] | null;
@@ -88,8 +89,8 @@ export function TagFilterPicker({ allTags, selected, onChange }: Props) {
       </div>
 
       {open && (
-        <div className="absolute left-0 mt-2 w-80 max-w-[90vw] bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl z-30 overflow-hidden flex flex-col max-h-96">
-          <div className="p-2 border-b border-zinc-800">
+        <div className={`absolute left-0 mt-2 w-80 max-w-[90vw] ${MENU} flex flex-col max-h-96`}>
+          <div className="p-2 border-b border-zinc-700">
             <input
               autoFocus
               value={query}
@@ -112,7 +113,7 @@ export function TagFilterPicker({ allTags, selected, onChange }: Props) {
                   ? `Search ${allTags.length} tags…`
                   : 'Loading tags…'
               }
-              className="w-full px-3 py-1.5 rounded-md bg-zinc-950 border border-zinc-800 focus:border-indigo-500 outline-none text-sm"
+              className="w-full px-3 py-1.5 rounded-md bg-zinc-950 border border-zinc-700 focus:border-indigo-500 outline-none text-sm"
             />
           </div>
           <div className="overflow-y-auto">
@@ -132,7 +133,7 @@ export function TagFilterPicker({ allTags, selected, onChange }: Props) {
                       <button
                         type="button"
                         onClick={() => add(t.name)}
-                        className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-left hover:bg-zinc-800 text-zinc-200"
+                        className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-left hover:bg-zinc-700 text-zinc-200"
                       >
                         <span>{t.name}</span>
                         {t.isAdult && (
