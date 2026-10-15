@@ -5,6 +5,7 @@ import type {
   CollectionSection,
   DayOfWeek,
   Season,
+  StreamLinksMap,
 } from './types';
 import { WATCH_STATUS_LABELS, seasonRank } from './utils';
 
@@ -424,12 +425,15 @@ function downloadBlob(content: string, filename: string, mime: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function exportScheduleJson(seasons: Season[]): void {
+/** `streamLinks` (all of a show's links) rides along with the backup; the
+ *  rows' platform fields only hold the first one. */
+export function exportScheduleJson(seasons: Season[], streamLinks: StreamLinksMap = {}): void {
   const payload = {
     kind: SCHEDULE_KIND,
     version: 1,
     exportedAt: new Date().toISOString(),
     seasons,
+    streamLinks,
   };
   downloadBlob(
     JSON.stringify(payload, null, 2),
@@ -438,12 +442,13 @@ export function exportScheduleJson(seasons: Season[]): void {
   );
 }
 
-export function exportCollectionJson(entries: CollectionEntry[]): void {
+export function exportCollectionJson(entries: CollectionEntry[], streamLinks: StreamLinksMap = {}): void {
   const payload = {
     kind: COLLECTION_KIND,
     version: 1,
     exportedAt: new Date().toISOString(),
     entries,
+    streamLinks,
   };
   downloadBlob(
     JSON.stringify(payload, null, 2),

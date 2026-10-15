@@ -21,6 +21,7 @@ query ($search: String) {
       averageScore
       startDate { year month day }
       nextAiringEpisode { episode airingAt }
+      status
     }
   }
 }`;
@@ -59,7 +60,9 @@ async function anilistFetch(
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
     throw new AnilistError(
-      'Could not reach AniList. They may be down — check anilist.co or their Discord.',
+      // AniList's 429 "too many requests" replies carry no CORS headers, so the
+      // browser reports them as a network failure too — say both.
+      'Could not reach AniList. Too many requests in a short time (wait ~15 seconds and retry), or AniList may be down.',
       0,
     );
   }
@@ -204,6 +207,7 @@ query (${params.join(', ')}) {
       tags { name rank isAdult isMediaSpoiler }
       startDate { year month day }
       nextAiringEpisode { episode airingAt }
+      status
     }
   }
 }`;
@@ -415,6 +419,7 @@ query (${params.join(', ')}) {
       nextAiringEpisode { episode airingAt }
       season
       seasonYear
+      status
     }
   }
 }`;
@@ -479,6 +484,7 @@ query ($id: Int) {
     tags { name rank isAdult isMediaSpoiler }
     startDate { year month day }
     nextAiringEpisode { episode airingAt }
+    status
   }
 }`;
   let res: Response;
@@ -515,6 +521,7 @@ query ($ids: [Int]) {
       tags { name rank isAdult isMediaSpoiler }
       startDate { year month day }
       nextAiringEpisode { episode airingAt }
+      status
     }
   }
 }`;
@@ -529,4 +536,101 @@ query ($ids: [Int]) {
     data?: { Page?: { media?: AnilistMedia[] } };
   };
   return json.data?.Page?.media ?? [];
+}
+
+export interface AnimeRelation {
+  relationType: string;
+  node: {
+    id: number;
+    type: string;
+    format: string | null;
+    status: string | null;
+    title: { romaji: string; english: string | null };
+    coverImage: { medium: string };
+    startDate: { year: number | null } | null;
+  };
+}
+
+/** Everything the detail page shows, in one request. */
+export interface AnimeDetail extends AnilistMedia {
+  bannerImage: string | null;
+  coverImage: { extraLarge?: string; large: string; medium: string };
+  duration: number | null;
+  source: string | null;
+  popularity: number | null;
+  endDate: { year: number | null; month: number | null; day: number | null } | null;
+  studios: { nodes: { name: string }[] } | null;
+  trailer: { id: string; site: string } | null;
+  rankings: { rank: number; type: string; allTime: boolean | null }[] | null;
+  relations: { edges: AnimeRelation[] } | null;
+}
+
+const DETAIL_QUERY = `
+query ($id: Int) {
+  Media(id: $id, type: ANIME) {
+    id
+    title { romaji english native }
+    coverImage { extraLarge large medium }
+    bannerImage
+    format
+    episodes
+    duration
+    status
+    season
+    seasonYear
+    source
+    averageScore
+    popularity
+    genres
+    description(asHtml: false)
+    tags { name rank isAdult isMediaSpoiler }
+    startDate { year month day }
+    endDate { year month day }
+    nextAiringEpisode { episode airingAt }
+    studios(isMain: true) { nodes { name } }
+    trailer { id site }
+    rankings { rank type allTime }
+    relations {
+      edges {
+        relationType(version: 2)
+        node {
+          id
+          type
+          format
+          status
+          title { romaji english }
+          coverImage { medium }
+          startDate { year }
+        }
+      }
+    }
+  }
+}`;
+
+/** Full detail for one show. Throws AnilistError (404 = no such anime). */
+export async function getAnimeDetail(
+  id: number,
+  signal?: AbortSignal,
+): Promise<AnimeDetail> {
+  const res = await anilistFetch(
+    JSON.stringify({ query: DETAIL_QUERY, variables: { id } }),
+    signal,
+  );
+  if (!res.ok) {
+    const msg =
+      res.status === 404
+        ? `AniList has no anime with id ${id}.`
+        : res.status === 429
+          ? 'Rate limited by AniList. Wait a few seconds and try again.'
+          : `AniList returned HTTP ${res.status}.`;
+    throw new AnilistError(msg, res.status);
+  }
+  const json = (await res.json()) as {
+    data?: { Media?: AnimeDetail };
+    errors?: { message: string }[];
+  };
+  if (!json.data?.Media) {
+    throw new AnilistError(json.errors?.[0]?.message ?? 'Not found', 404);
+  }
+  return json.data.Media;
 }

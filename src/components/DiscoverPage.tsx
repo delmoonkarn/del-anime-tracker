@@ -1,14 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
-import { RefreshCw, Search, Sparkles, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronDown, Play, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import type {
   AnilistTag,
   AnimeSeason,
   AnimeSeasonRef,
   DiscoverCacheEntry,
   DiscoverItem,
+  StreamLink,
 } from '@/lib/types';
 import { tagsMatch } from '@/lib/utils';
-import { DiscoverCard } from './DiscoverCard';
+import { useLinksResolver } from '@/lib/nav';
+import { BTN, BTN_ICON, EYEBROW, FIELD, MENU, pillClass } from '@/lib/ui';
+import { useClickOutside } from '@/hooks/useClickOutside';
+import { ExploreCard } from './ExploreCard';
+import { PageHeader } from './PageHeader';
+import { ServiceLogo } from './ServiceLogo';
 import { TagFilterPicker } from './TagFilterPicker';
 
 interface Props {
@@ -79,6 +85,9 @@ export function DiscoverPage({
   const [search, setSearch] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
+  /** Streaming service names; a show passes if it is on any of them. */
+  const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  const linksOf = useLinksResolver();
   /** True = hide everything except the Continuing block. Toggled by the
    *  "Continuing N" pill in the format filter row. Auto-resets when the
    *  selection moves to a non-current season (where Continuing is empty). */
@@ -256,6 +265,9 @@ export function DiscoverPage({
 
   const q = search.trim().toLowerCase();
   const formatFilterActive = selectedFormats.length > 0;
+  const servicesOf = (i: DiscoverItem) => linksOf(i.anilistId).map((l) => l.site);
+  const onSelectedService = (i: DiscoverItem) =>
+    selectedServices.length === 0 || servicesOf(i).some((s) => selectedServices.includes(s));
   // Continuing-only mode hides every main-grid item. Filtered continuing
   // items still render via the existing filteredContinuing path below.
   const visibleItems = continuingOnly
@@ -264,6 +276,7 @@ export function DiscoverPage({
         if (formatFilterActive && (!i.format || !selectedFormats.includes(i.format))) {
           return false;
         }
+        if (!onSelectedService(i)) return false;
         if (q) {
           const titleHit = i.title.toLowerCase().includes(q);
           const engHit = i.titleEnglish?.toLowerCase().includes(q) ?? false;
@@ -353,6 +366,7 @@ export function DiscoverPage({
     if (formatFilterActive && (!i.format || !selectedFormats.includes(i.format))) {
       return false;
     }
+    if (!onSelectedService(i)) return false;
     if (q) {
       const titleHit = i.title.toLowerCase().includes(q);
       const engHit = i.titleEnglish?.toLowerCase().includes(q) ?? false;
@@ -410,282 +424,260 @@ export function DiscoverPage({
   const yearOptions: number[] = [];
   for (let y = defaultRef.year + 5; y >= 1940; y--) yearOptions.push(y);
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 py-6">
-      <div className="border-b border-zinc-800 pb-4 mb-6">
-        <p className="text-xs uppercase tracking-wider text-zinc-500 font-semibold">
-          · Discover by Season · 
-        </p>
-        <h1 className="text-2xl font-bold mt-0.5 flex items-center gap-2">
-          {selectedName}
-          {isSelectionCurrentSeason && <Sparkles className="w-5 h-5 text-amber-400" />}
-        </h1>
+  // Streaming services you've set on schedule entries for the listed shows
+  // (search-aware, like the format pills), with one sample link each for the logo.
+  const serviceCounts = new Map<string, number>();
+  const serviceLogo = new Map<string, StreamLink>();
+  for (const i of countables) {
+    for (const l of linksOf(i.anilistId)) {
+      serviceCounts.set(l.site, (serviceCounts.get(l.site) ?? 0) + 1);
+      if (!serviceLogo.has(l.site)) serviceLogo.set(l.site, l);
+    }
+  }
+  // A selected service stays listed even when the search hides all its shows.
+  for (const s of selectedServices) if (!serviceCounts.has(s)) serviceCounts.set(s, 0);
+  const serviceList = [...serviceCounts].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]));
 
-        <div className="mt-4 flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={selectedSeason ?? ''}
-              onChange={(e) =>
-                setSelectedSeason(
-                  e.target.value === '' ? null : (e.target.value as AnimeSeason),
-                )
-              }
-              className="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 focus:border-indigo-500 outline-none text-sm"
-            >
-              <option value="">— All year —</option>
-              {(['WINTER', 'SPRING', 'SUMMER', 'FALL'] as const).map((s) => {
-                const tag =
-                  s === defaultRef.season
-                    ? ' · Now'
-                    : s === NEXT_SEASON[defaultRef.season]
-                      ? ' · Next'
-                      : '';
-                return (
-                  <option key={s} value={s}>
-                    {SEASON_LABEL[s]}
-                    {tag}
-                  </option>
-                );
-              })}
-            </select>
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 focus:border-indigo-500 outline-none text-sm"
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y === defaultRef.year ? `${y} ★` : y}
-                </option>
-              ))}
-            </select>
-            {selectedYear !== defaultRef.year && (
-              <button
-                type="button"
-                onClick={() => setSelectedYear(defaultRef.year)}
-                className="px-2 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-indigo-300 hover:bg-zinc-800"
-                title={`Jump to current year (${defaultRef.year})`}
+  const anyFilter = selectedFormats.length > 0 || continuingOnly || selectedServices.length > 0;
+  const cached = !loading ? findCached() : undefined;
+  const targetSeasonFor = (item: DiscoverItem) =>
+    // In all-year mode each anime lands in the tracker season matching its
+    // actual airing season.
+    selectedSeason
+      ? selectedName
+      : seasonNameFromMonth(item.startDate?.year ?? selectedYear, item.startDate?.month ?? undefined);
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+      <PageHeader
+        title={
+          <>
+            {selectedSeason ? selectedName : `All of ${selectedYear}`}
+            {isSelectionCurrentSeason && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-300"
+                title="Current season"
               >
-                Today ({defaultRef.year})
-              </button>
+                <Sparkles className="h-3 w-3" />
+                Now
+              </span>
+            )}
+          </>
+        }
+        actions={
+          <>
+            {cached && (
+              <span className="text-xs text-zinc-500">Updated {timeAgo(cached.fetchedAt)}</span>
             )}
             <button
               type="button"
               onClick={() => {
                 performFetch();
-                // Continuing isn't cached, but the in-memory list survives
-                // across re-renders — re-fetch it on Refresh so the user
-                // gets up-to-date data for both blocks in one click.
-                if (
-                  selectedSeason === defaultRef.season &&
-                  selectedYear === defaultRef.year
-                ) {
-                  fetchContinuing();
-                }
+                // Continuing isn't cached — refetch it too so both blocks
+                // are fresh after one click.
+                if (isSelectionCurrentSeason) fetchContinuing();
               }}
               disabled={loading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-sm font-medium disabled:opacity-50 disabled:cursor-wait"
+              className={BTN_ICON}
               title="Refresh from AniList (ignore cache)"
+              aria-label="Refresh from AniList"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">Refresh</span>
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            {!loading &&
-              (() => {
-                const hit = findCached();
-                if (!hit) return null;
-                return (
-                  <span className="text-xs text-zinc-500">
-                    Cached · {timeAgo(hit.fetchedAt)} · {cacheEntries.length}/4 stored
-                  </span>
-                );
-              })()}
-          </div>
-
-          <div className="flex items-start gap-3">
-            <label className="text-xs text-zinc-400 font-semibold uppercase tracking-wide pt-1.5">
-              Tags
-            </label>
-            <div className="flex-1 min-w-0">
-              <TagFilterPicker
-                allTags={allTags}
-                selected={selectedTags}
-                onChange={setSelectedTags}
-              />
-            </div>
-          </div>
-
+          </>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={selectedSeason ?? ''}
+            onChange={(e) =>
+              setSelectedSeason(e.target.value === '' ? null : (e.target.value as AnimeSeason))
+            }
+            className={FIELD}
+            aria-label="Season"
+          >
+            <option value="">— All year —</option>
+            {(['WINTER', 'SPRING', 'SUMMER', 'FALL'] as const).map((s) => {
+              const nextYear = defaultRef.season === 'FALL' ? defaultRef.year + 1 : defaultRef.year;
+              const tag =
+                selectedYear === defaultRef.year && s === defaultRef.season
+                  ? ' · Now'
+                  : selectedYear === nextYear && s === NEXT_SEASON[defaultRef.season]
+                    ? ' · Next'
+                    : '';
+              return (
+                <option key={s} value={s}>
+                  {SEASON_LABEL[s]}
+                  {tag}
+                </option>
+              );
+            })}
+          </select>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(Number(e.target.value))}
+            className={FIELD}
+            aria-label="Year"
+          >
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>
+                {y === defaultRef.year ? `${y} ★` : y}
+              </option>
+            ))}
+          </select>
+          {!isSelectionCurrentSeason && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedSeason(defaultRef.season);
+                setSelectedYear(defaultRef.year);
+              }}
+              className="h-8 rounded-lg px-2.5 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-indigo-300"
+            >
+              Today ({defaultRef.name})
+            </button>
+          )}
+          <ServiceFilter
+            list={serviceList}
+            logos={serviceLogo}
+            selected={selectedServices}
+            onToggle={(s) =>
+              setSelectedServices((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]))
+            }
+            onClear={() => setSelectedServices([])}
+          />
+          <span className="mx-1 hidden h-5 border-l border-zinc-800 sm:block" aria-hidden />
+          <label className={`${FIELD} flex w-full items-center gap-2 sm:w-60`}>
+            <Search className="h-4 w-4 shrink-0 text-zinc-500" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={items.length > 0 ? `Filter ${items.length} titles…` : 'Filter titles…'}
+              aria-label="Filter these results by title"
+              className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-zinc-500"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="text-zinc-500 hover:text-zinc-300"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </label>
           {(formatList.length > 0 || filteredContinuing.length > 0) && (
-            <div className="flex items-start gap-3">
-              <label className="text-xs text-zinc-400 font-semibold uppercase tracking-wide pt-1.5">
-                Format
-              </label>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {formatList.map((f) => {
-                  const active = selectedFormats.includes(f);
-                  const count = formatCounts.get(f) ?? 0;
-                  return (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => toggleFormat(f)}
-                      className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
-                        active
-                          ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/60'
-                          : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
-                      }`}
-                    >
-                      {FORMAT_LABELS[f] ?? f}{' '}
-                      <span className={active ? 'opacity-70' : 'text-zinc-500'}>
-                        {count}
-                      </span>
-                    </button>
-                  );
-                })}
-                {/* Continuing-only pill — last in the row, mirrors the
-                    Continuing block's position at the bottom of the grid.
-                    Distinct cyan tint sets it apart from the indigo format
-                    pills since it's a section filter, not a format. */}
-                {filteredContinuing.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Format">
+              {formatList.map((f) => {
+                const active = selectedFormats.includes(f);
+                return (
                   <button
+                    key={f}
                     type="button"
-                    onClick={() => setContinuingOnly((v) => !v)}
-                    className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
-                      continuingOnly
-                        ? 'bg-cyan-500/20 text-cyan-200 border-cyan-500/60'
-                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-cyan-500/40'
-                    }`}
-                    title="Show only the Continuing block"
+                    onClick={() => toggleFormat(f)}
+                    className={pillClass(active)}
+                    aria-pressed={active}
                   >
-                    Continuing{' '}
-                    <span
-                      className={continuingOnly ? 'opacity-70' : 'text-zinc-500'}
-                    >
-                      {filteredContinuing.length}
-                    </span>
+                    {FORMAT_LABELS[f] ?? f}{' '}
+                    <span className="tabular-nums opacity-60">{formatCounts.get(f) ?? 0}</span>
                   </button>
-                )}
-                {(selectedFormats.length > 0 || continuingOnly) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedFormats([]);
-                      setContinuingOnly(false);
-                    }}
-                    className="text-[11px] text-zinc-500 hover:text-zinc-300 px-2 py-1"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
+                );
+              })}
+              {filteredContinuing.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setContinuingOnly((v) => !v)}
+                  className={pillClass(continuingOnly, 'info')}
+                  aria-pressed={continuingOnly}
+                  title="Show only shows from earlier seasons that are still airing"
+                >
+                  Continuing <span className="tabular-nums opacity-60">{filteredContinuing.length}</span>
+                </button>
+              )}
+              {anyFilter && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedFormats([]);
+                    setContinuingOnly(false);
+                    setSelectedServices([]);
+                  }}
+                  className="px-2 text-xs text-zinc-500 hover:text-zinc-300"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           )}
         </div>
-      </div>
+
+        <div className="flex items-start gap-3">
+          <span className={`${EYEBROW} pt-1.5`}>Tags</span>
+          <div className="min-w-0 flex-1">
+            <TagFilterPicker allTags={allTags} selected={selectedTags} onChange={setSelectedTags} />
+          </div>
+        </div>
+      </PageHeader>
 
       {error && (
-        <div className="mb-4 p-3 rounded-lg border border-red-500/30 bg-red-500/5 text-sm text-red-300">
+        <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300">
           {error}
         </div>
       )}
 
-      {items.length > 0 && (
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Search ${items.length} title${items.length === 1 ? '' : 's'}…`}
-            className="w-full pl-9 pr-9 py-2 rounded-lg bg-zinc-950 border border-zinc-800 focus:border-indigo-500 outline-none text-sm"
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
-              aria-label="Clear search"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
+      {loading && items.length === 0 && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6" aria-busy="true">
+          {Array.from({ length: 12 }, (_, i) => (
+            <div key={i} className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900" aria-hidden>
+              <div className="aspect-[2/3] w-full animate-pulse bg-zinc-800" />
+              <div className="flex flex-col gap-2 p-3">
+                <div className="h-4 w-3/4 animate-pulse rounded bg-zinc-800" />
+                <div className="h-3 w-1/2 animate-pulse rounded bg-zinc-800" />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
-      {!loading &&
-        items.length === 0 &&
-        filteredContinuing.length === 0 &&
-        !error && (
-          <p className="text-center text-sm text-zinc-500 py-24">No results.</p>
-        )}
+      {!loading && items.length === 0 && filteredContinuing.length === 0 && !error && (
+        <p className="py-24 text-center text-sm text-zinc-500">AniList has no anime listed for this season.</p>
+      )}
 
-      {items.length > 0 &&
-        visibleItems.length === 0 &&
-        filteredContinuing.length === 0 && (
-          <p className="text-center text-sm text-zinc-500 py-12">
-            No titles match &quot;{search.trim()}&quot;.
-          </p>
-        )}
+      {items.length > 0 && orderedItems.length === 0 && (
+        <p className="py-12 text-center text-sm text-zinc-500">
+          {search.trim() ? `No titles match “${search.trim()}”.` : 'No titles match these filters.'}
+        </p>
+      )}
 
       {orderedItems.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {(() => {
-            // Walk orderedItems and inject a full-width separator whenever
-            // the block changes. TV (block 0) and ONA (block 0) share
-            // a block so there's no line between them. Continuing items
-            // override their format's block to CONTINUING_BLOCK.
+            // Walk orderedItems and inject a full-width heading whenever the
+            // block changes. TV and ONA share a block so there's no line
+            // between them. Continuing items override their format's block.
             const nodes: React.ReactNode[] = [];
             let prevBlock: number | null = null;
             for (const item of orderedItems) {
               const block = blockOf(item);
               if (prevBlock !== null && block !== prevBlock) {
-                // Labeled separator: section heading on the left, a thin
-                // line stretching to the right edge of the grid. Heading
-                // joins the labels of every format actually present in
-                // this block (e.g. "Specials & OVAs" when both appear).
                 nodes.push(
-                  <div
-                    key={`sep-${item.anilistId}`}
-                    className="col-span-full flex items-center gap-3 my-3"
-                  >
-                    <span className="text-sm font-semibold text-zinc-300 shrink-0">
-                      {blockHeading(block)}
-                    </span>
-                    <div
-                      className="flex-1 border-t border-zinc-800"
-                      aria-hidden
-                    />
+                  <div key={`sep-${item.anilistId}`} className="col-span-full mt-4 mb-1 flex items-center gap-3">
+                    <h2 className="shrink-0 text-sm font-semibold text-zinc-200">{blockHeading(block)}</h2>
+                    <div className="flex-1 border-t border-zinc-800" aria-hidden />
                   </div>,
                 );
               }
               prevBlock = block;
+              const target = targetSeasonFor(item);
               nodes.push(
-                <DiscoverCard
+                <ExploreCard
                   key={item.anilistId}
                   item={item}
-                  alreadyAdded={isAddedTo(
-                    item.anilistId,
-                    // In all-year mode, "added" check is per-anime against
-                    // the tracker season matching that anime's actual
-                    // airing season.
-                    selectedSeason
-                      ? selectedName
-                      : seasonNameFromMonth(
-                          item.startDate?.year ?? selectedYear,
-                          item.startDate?.month ?? undefined,
-                        ),
-                  )}
-                  onAdd={() =>
-                    onAdd(
-                      item,
-                      selectedSeason
-                        ? selectedName
-                        : seasonNameFromMonth(
-                            item.startDate?.year ?? selectedYear,
-                            item.startDate?.month ?? undefined,
-                          ),
-                    )
-                  }
+                  seasonName={target}
+                  added={isAddedTo(item.anilistId, target)}
+                  onAdd={() => onAdd(item, target)}
                   favorited={isFavorited(item.anilistId)}
                   interested={isInterested(item.anilistId)}
                   onToggleFavorite={() => onToggleFavorite(item)}
@@ -695,6 +687,87 @@ export function DiscoverPage({
             }
             return nodes;
           })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Multi-select dropdown of the streaming services the listed shows are on,
+ *  with a logo and a count each. A show passes if it is on any selected one. */
+function ServiceFilter({
+  list,
+  logos,
+  selected,
+  onToggle,
+  onClear,
+}: {
+  list: [string, number][];
+  logos: Map<string, StreamLink>;
+  selected: string[];
+  onToggle: (service: string) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useClickOutside(ref, open, close);
+
+  const label =
+    selected.length === 0 ? 'All services' : selected.length === 1 ? selected[0] : `${selected[0]} +${selected.length - 1}`;
+  const firstLogo = selected[0] !== undefined ? logos.get(selected[0]) : undefined;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        disabled={list.length === 0}
+        className={`${BTN} min-w-36 justify-between font-normal ${
+          selected.length > 0 ? 'bg-indigo-500/10 text-indigo-300 ring-1 ring-indigo-500/50' : ''
+        }`}
+        aria-expanded={open}
+        aria-label={`Streaming service filter: ${label}`}
+        title={list.length === 0 ? 'None of these shows has a streaming link on your schedule' : undefined}
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          {firstLogo ? <ServiceLogo link={firstLogo} className="h-4 w-4" /> : <Play className="h-3.5 w-3.5 opacity-60" />}
+          <span className="truncate">{label}</span>
+        </span>
+        <ChevronDown className={`h-3.5 w-3.5 opacity-60 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className={`${MENU} absolute left-0 mt-1 w-64 p-1.5`}>
+          <ul className="flex max-h-72 flex-col gap-0.5 overflow-y-auto" aria-label="Streaming services">
+            {list.map(([s, n]) => {
+              const logo = logos.get(s);
+              return (
+                <li key={s}>
+                  <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-800">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 accent-indigo-500"
+                      checked={selected.includes(s)}
+                      onChange={() => onToggle(s)}
+                      aria-label={`${s}, ${n} show${n === 1 ? '' : 's'}`}
+                    />
+                    {logo && <ServiceLogo link={logo} className="h-5 w-5" />}
+                    <span className="min-w-0 flex-1 truncate">{s}</span>
+                    <span className="text-xs tabular-nums text-zinc-500">{n}</span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          {selected.length > 0 && (
+            <button
+              type="button"
+              onClick={onClear}
+              className="mt-1 w-full rounded-lg py-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+            >
+              Clear selection
+            </button>
+          )}
         </div>
       )}
     </div>

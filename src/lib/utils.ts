@@ -163,19 +163,6 @@ export function computeAiredEpisodes(
   return totalEpisodes ?? null;
 }
 
-/** "in 3h 12m" / "in 2d 5h" / "in 45m" — short relative-time for next airing. */
-export function formatCountdown(targetUnixSec: number, now: number = Date.now()): string {
-  const diff = targetUnixSec * 1000 - now;
-  if (diff <= 0) return 'aired';
-  const totalMin = Math.floor(diff / 60_000);
-  const days = Math.floor(totalMin / (60 * 24));
-  const hours = Math.floor((totalMin % (60 * 24)) / 60);
-  const mins = totalMin % 60;
-  if (days > 0) return `in ${days}d ${hours}h`;
-  if (hours > 0) return `in ${hours}h ${mins}m`;
-  return `in ${mins}m`;
-}
-
 /**
  * Converts AniList's `nextAiringEpisode.airingAt` (unix seconds, UTC) into a
  * tracker-friendly `{ day, time }` in the user's local timezone. Used to
@@ -254,4 +241,16 @@ export function getCurrentAnimeSeasonRef(date: Date = new Date()): AnimeSeasonRe
   const y = date.getFullYear();
   const idx = m <= 2 ? 0 : m <= 5 ? 1 : m <= 8 ? 2 : 3;
   return { season: SEASON_CODES[idx], year: y, name: `${SEASON_DISPLAY[idx]} ${y}` };
+}
+
+/** "ep 3 · Thu 21:56" — when the next episode airs, as a plain day + time
+ *  (no countdown). Adds the date when it's more than a week out. */
+export function formatNextAiring(episode: number, airingAtSec: number, now: number = Date.now()): string {
+  const d = new Date(airingAtSec * 1000);
+  // English like the rest of the UI, whatever the browser's language.
+  const day = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const farOff = airingAtSec * 1000 - now > 6.5 * 24 * 3600 * 1000;
+  const date = farOff ? ` ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : '';
+  return `ep ${episode} · ${day}${date} ${time}`;
 }

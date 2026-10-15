@@ -1,6 +1,6 @@
 import type { AnilistMedia, DiscoverItem } from './types';
 
-function stripHtml(s: string): string {
+export function stripHtml(s: string): string {
   return s
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/?(p|div)[^>]*>/gi, '\n')
@@ -37,5 +37,6 @@ export function toDiscoverItem(m: AnilistMedia): DiscoverItem {
     startDate: m.startDate ?? undefined,
     nextAiringEpisode: m.nextAiringEpisode?.episode ?? undefined,
     nextAiringAt: m.nextAiringEpisode?.airingAt ?? undefined,
+    status: m.status ?? undefined,
   };
 }

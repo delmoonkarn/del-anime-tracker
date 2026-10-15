@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { SeasonSelector } from '@/components/SeasonSelector';
 import { ScheduleGrid } from '@/components/ScheduleGrid';
@@ -9,6 +9,9 @@ import { DiscoverPage } from '@/components/DiscoverPage';
 import { HDiscoverPage } from '@/components/HDiscoverPage';
 import { HFavoritesPage } from '@/components/HFavoritesPage';
 import { CollectionPage } from '@/components/CollectionPage';
+import { WatchlistPage, type WatchItem } from '@/components/WatchlistPage';
+import { AnimeDetailPage } from '@/components/AnimeDetailPage';
+import { NavProvider, entryLink } from '@/lib/nav';
 import { useConfirm } from '@/components/ConfirmDialog';
 import type {
   AnimeEntry,
@@ -23,6 +26,8 @@ import type {
   HFavoriteEntry,
   ScheduleProgress,
   Season,
+  StreamLink,
+  StreamLinksMap,
 } from '@/lib/types';
 import type { ImportProgress } from '@/lib/import';
 import {
@@ -30,10 +35,12 @@ import {
   loadDiscoverCache,
   loadHFavorites,
   loadState,
+  loadStreamLinks,
   saveCollection,
   saveDiscoverCache,
   saveHFavorites,
   saveState,
+  saveStreamLinks,
 } from '@/lib/storage';
 import {
   deriveDayFromStartDate,
@@ -42,6 +49,15 @@ import {
   newId,
   tagsMatch,
 } from '@/lib/utils';
+
+/** One browser-history entry: which page, which detail (if any), and the
+ *  scroll position it was left at. `idx` counts entries within this app. */
+interface NavEntry {
+  view: AppView;
+  detail: number | null;
+  idx: number;
+  scroll?: number;
+}
 
 function guessCurrentSeason(): string {
   const now = new Date();
@@ -74,7 +90,15 @@ export function App() {
   const [collection, setCollection] = useState<CollectionEntry[]>([]);
   const [hFavorites, setHFavorites] = useState<HFavoriteEntry[]>([]);
   const [discoverCache, setDiscoverCache] = useState<DiscoverCache>({ entries: [] });
+  /** Streaming links per show (stream_links table), keyed by AniList id. */
+  const [streamLinks, setStreamLinks] = useState<StreamLinksMap>({});
   const [importingCollection, setImportingCollection] = useState(false);
+  /** AniList id of the open detail page. The page underneath stays mounted
+   *  (hidden) so Explore filters and scroll survive a trip to a detail. */
+  const [detailId, setDetailId] = useState<number | null>(null);
+  /** Position of the current entry in this app's own history (0 = the
+   *  entry the app booted on), so Back never walks out of the app. */
+  const navIdx = useRef(0);
   const confirm = useConfirm();
   // Becomes true once initial load from localStorage has completed. The save
   // effects below gate on this so they don't overwrite stored data with the
@@ -85,12 +109,13 @@ export function App() {
 
   useEffect(() => {
     (async () => {
-      const [loaded, loadedCollection, loadedDiscover, loadedHFavs] =
+      const [loaded, loadedCollection, loadedDiscover, loadedHFavs, loadedLinks] =
         await Promise.all([
           loadState(),
           loadCollection(),
           loadDiscoverCache(),
           loadHFavorites(),
+          loadStreamLinks(),
         ]);
       // Always boot into the current calendar season's schedule. If a season
       // with that name exists in storage, switch the active season to it; if
@@ -107,6 +132,7 @@ export function App() {
       setCollection(loadedCollection);
       setDiscoverCache(loadedDiscover);
       setHFavorites(loadedHFavs);
+      setStreamLinks(loadedLinks);
       setHydrated(true);
 
       // One-time tag enrichment: older collection entries only had top-5 tags.
@@ -136,8 +162,8 @@ export function App() {
   /** Refreshes cached AniList airing data — but only for entries in the
    *  current calendar season. Past seasons are finished (no future airings
    *  to track) and future seasons haven't started, so spending API calls on
-   *  them is wasted. The card-side AiringIndicator is gated to the current
-   *  season too, so any data we'd fetch outside of it wouldn't be displayed.
+   *  them is wasted. The schedule card's aired / next-episode info is gated
+   *  to the current season too, so data fetched outside it wouldn't show.
    *
    *  Within the current season we skip COMPLETED/DROPPED entries and any
    *  whose cache is still fresh (nextAiringAt in the future). Batched in
@@ -330,6 +356,53 @@ export function App() {
     }
   };
 
+  // Browser history: every page switch and every detail page is one entry
+  // holding { view, detail, scroll }, so Back / Forward (and the detail
+  // page's own Back) always land on the page you were really on, at the
+  // scroll position you left it.
+  useEffect(() => {
+    window.history.replaceState({ view: 'schedule', detail: null, idx: 0 } satisfies NavEntry, '');
+    const onPop = (e: PopStateEvent) => {
+      const entry = e.state as NavEntry | null;
+      if (!entry || typeof entry.idx !== 'number') return;
+      navIdx.current = entry.idx;
+      setView(entry.view);
+      setDetailId(entry.detail);
+      requestAnimationFrame(() => window.scrollTo(0, entry.scroll ?? 0));
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  const navigate = (nextView: AppView, nextDetail: number | null) => {
+    // Remember where we were on the entry we're leaving.
+    const current = window.history.state as NavEntry | null;
+    if (current && typeof current.idx === 'number') {
+      window.history.replaceState({ ...current, scroll: window.scrollY }, '');
+    }
+    navIdx.current += 1;
+    window.history.pushState({ view: nextView, detail: nextDetail, idx: navIdx.current } satisfies NavEntry, '');
+    setView(nextView);
+    setDetailId(nextDetail);
+    window.scrollTo(0, 0);
+  };
+
+  const openDetail = (anilistId: number) => {
+    if (anilistId <= 0 || anilistId === detailId) return;
+    navigate(view, anilistId);
+  };
+
+  /** Detail page's Back: one step back in history, or (when the detail is
+   *  the first thing in this app's history, e.g. after a reload) just close it. */
+  const closeDetail = () => {
+    if (navIdx.current > 0) {
+      window.history.back();
+    } else {
+      window.history.replaceState({ view, detail: null, idx: 0 } satisfies NavEntry, '');
+      setDetailId(null);
+    }
+  };
+
   useEffect(() => {
     if (!hydrated || !state) return;
     saveState(state);
@@ -349,6 +422,11 @@ export function App() {
     if (!hydrated) return;
     saveHFavorites(hFavorites);
   }, [hFavorites, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    saveStreamLinks(streamLinks);
+  }, [streamLinks, hydrated]);
 
   const activeSeason: Season | null = useMemo(() => {
     if (!state) return null;
@@ -388,15 +466,21 @@ export function App() {
     });
   };
 
+  /** Switches page (header, page tabs), closing any open detail page. */
+  const goTo = (next: AppView) => {
+    if (next === view && detailId === null) return;
+    navigate(next, null);
+  };
+
   const handleSelectSeason = (id: string) => {
     setState((prev) => (prev ? { ...prev, activeSeasonId: id } : prev));
-    setView('schedule');
+    goTo('schedule');
   };
 
   /** Jumps to the schedule view, switching to the calendar's current season
    *  (e.g. "Spring 2026") if one exists in the tracker. */
   const handleJumpHome = () => {
-    setView('schedule');
+    goTo('schedule');
     setState((prev) => {
       if (!prev) return prev;
       const target = prev.seasons.find(
@@ -618,6 +702,111 @@ export function App() {
     );
   };
 
+  // Streaming links per show: the saved list, plus any single platform URL
+  // still sitting on a schedule row (xlsx / JSON imports bring those in) that
+  // isn't in the list yet. Editing a show's links saves the merged list and
+  // clears those row fields, so a removed link stays removed.
+  const linksByShow = new Map<number, StreamLink[]>();
+  for (const [id, links] of Object.entries(streamLinks)) {
+    if (links.length > 0) linksByShow.set(Number(id), links);
+  }
+  for (const a of state.seasons.flatMap((s) => s.animes)) {
+    const url = a.platformUrl?.trim();
+    if (a.anilistId <= 0 || !url) continue;
+    const list = linksByShow.get(a.anilistId) ?? [];
+    if (!list.some((l) => l.url.trim() === url)) {
+      linksByShow.set(a.anilistId, [...list, { ...entryLink(a)[0], url }]);
+    }
+  }
+
+  const setLinks = (anilistId: number, links: StreamLink[]) => {
+    if (anilistId <= 0) return;
+    setStreamLinks((prev) => {
+      const next = { ...prev };
+      if (links.length > 0) next[anilistId] = links;
+      else delete next[anilistId];
+      return next;
+    });
+    setState((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        seasons: prev.seasons.map((s) => ({
+          ...s,
+          animes: s.animes.map((a) =>
+            a.anilistId === anilistId && (a.platform || a.platformUrl)
+              ? { ...a, platform: '', platformUrl: '' }
+              : a,
+          ),
+        })),
+      };
+    });
+  };
+
+  /** Saved links for the given shows, for a JSON backup. */
+  const linksFor = (ids: number[]): StreamLinksMap => {
+    const out: StreamLinksMap = {};
+    for (const id of new Set(ids)) {
+      const links = linksByShow.get(id);
+      if (id > 0 && links && links.length > 0) out[id] = links;
+    }
+    return out;
+  };
+
+  /** A JSON restore replaces the links of every show in the backup (the
+   *  backup wins, like the restored entries themselves). */
+  const restoreBackupLinks = (map: StreamLinksMap) => {
+    if (Object.keys(map).length === 0) return;
+    setStreamLinks((prev) => ({ ...prev, ...map }));
+  };
+
+  /** xlsx / JSON exports still carry one link per row: fill a bound row's
+   *  platform columns from the show's first saved link. */
+  const seasonsForExport = (): Season[] =>
+    state.seasons.map((s) => ({
+      ...s,
+      animes: s.animes.map((a) => {
+        const first = a.anilistId > 0 ? linksByShow.get(a.anilistId)?.[0] : undefined;
+        return first && !a.platformUrl ? { ...a, platform: first.site, platformUrl: first.url } : a;
+      }),
+    }));
+
+  // Watchlist: everything whose (synced) status is Watching, from any
+  // schedule season or the collection, one row per AniList id.
+  const watchItems: WatchItem[] = [];
+  const watchSeen = new Set<number>();
+  const allScheduleEntries = state.seasons
+    .flatMap((s) => s.animes)
+    .sort((a, b) => b.addedAt - a.addedAt);
+  for (const a of allScheduleEntries) {
+    if (a.anilistId <= 0 || watchSeen.has(a.anilistId)) continue;
+    if (scheduleProgress.get(a.anilistId)?.watchStatus !== 'WATCHING') continue;
+    watchSeen.add(a.anilistId);
+    watchItems.push({
+      anilistId: a.anilistId,
+      title: a.title,
+      titleEnglish: a.titleEnglish,
+      imageUrl: a.imageUrl,
+      totalEpisodes: a.totalEpisodes,
+      nextAiringEpisode: a.nextAiringEpisode,
+      nextAiringAt: a.nextAiringAt,
+    });
+  }
+  for (const c of collection) {
+    if (c.anilistId <= 0 || watchSeen.has(c.anilistId)) continue;
+    if (scheduleProgress.get(c.anilistId)?.watchStatus !== 'WATCHING') continue;
+    watchSeen.add(c.anilistId);
+    watchItems.push({
+      anilistId: c.anilistId,
+      title: c.title,
+      titleEnglish: c.titleEnglish,
+      imageUrl: c.imageUrl,
+      totalEpisodes: c.episodes,
+      nextAiringEpisode: c.nextAiringEpisode,
+      nextAiringAt: c.nextAiringAt,
+    });
+  }
+
   const addToCollection = (item: DiscoverItem, section: CollectionSection) => {
     setCollection((prev) => {
       const others = prev.filter(
@@ -720,21 +909,30 @@ export function App() {
   const handleSaveAnime = (entry: AnimeEntry) => {
     setState((prev) => {
       if (!prev || !activeSeason) return prev;
+      // An edit updates the entry in whichever season holds it (the
+      // Watchlist can edit shows from any season); a new entry goes into the
+      // active season.
+      const exists = prev.seasons.some((s) => s.animes.some((a) => a.id === entry.id));
       return {
         ...prev,
         seasons: prev.seasons.map((s) => {
-          if (s.id !== activeSeason.id) return s;
-          const exists = s.animes.some((a) => a.id === entry.id);
-          return {
-            ...s,
-            animes: exists
-              ? s.animes.map((a) => (a.id === entry.id ? entry : a))
-              : [...s.animes, entry],
-          };
+          if (exists) {
+            return s.animes.some((a) => a.id === entry.id)
+              ? { ...s, animes: s.animes.map((a) => (a.id === entry.id ? entry : a)) }
+              : s;
+          }
+          return s.id === activeSeason.id ? { ...s, animes: [...s.animes, entry] } : s;
         }),
       };
     });
   };
+
+  /** Most recently added schedule entry for a show, if it's on any season. */
+  const latestScheduleEntry = (anilistId: number): AnimeEntry | undefined =>
+    state.seasons
+      .flatMap((s) => s.animes)
+      .filter((a) => a.anilistId === anilistId)
+      .sort((a, b) => b.addedAt - a.addedAt)[0];
 
   /** Inline-edit path from the schedule card (progress +/-, status pill).
    *  Same shape as handleSaveAnime's update branch, but doesn't append on a
@@ -800,7 +998,7 @@ export function App() {
     setExporting(true);
     try {
       const { exportWorkbook } = await import('@/lib/export');
-      await exportWorkbook(state.seasons);
+      await exportWorkbook(seasonsForExport());
     } catch (err) {
       console.error('Export failed', err);
       await confirm({
@@ -914,10 +1112,11 @@ export function App() {
     if (importing) return;
     setImporting(true);
     try {
-      const { importScheduleJson, JsonImportError } = await import('@/lib/import');
+      const { importScheduleJson, readBackupLinks, JsonImportError } = await import('@/lib/import');
       let imported: Season[];
       try {
         imported = await importScheduleJson(file);
+        restoreBackupLinks(await readBackupLinks(file));
       } catch (err) {
         if (err instanceof JsonImportError) {
           await confirm({
@@ -1005,7 +1204,7 @@ export function App() {
   const handleScheduleJsonExport = async () => {
     if (!state) return;
     const { exportScheduleJson } = await import('@/lib/export');
-    exportScheduleJson(state.seasons);
+    exportScheduleJson(seasonsForExport(), linksFor(state.seasons.flatMap((s) => s.animes.map((a) => a.anilistId))));
   };
 
   // Collection import — merges into the existing collection by (anilistId, section)
@@ -1068,12 +1267,13 @@ export function App() {
     if (importingCollection) return;
     setImportingCollection(true);
     try {
-      const { importCollectionJson, JsonImportError } = await import(
+      const { importCollectionJson, readBackupLinks, JsonImportError } = await import(
         '@/lib/import'
       );
       let imported: CollectionEntry[];
       try {
         imported = await importCollectionJson(file);
+        restoreBackupLinks(await readBackupLinks(file));
       } catch (err) {
         if (err instanceof JsonImportError) {
           await confirm({
@@ -1134,10 +1334,11 @@ export function App() {
 
   const handleCollectionJsonExport = async () => {
     const { exportCollectionJson } = await import('@/lib/export');
-    exportCollectionJson(collection);
+    exportCollectionJson(collection, linksFor(collection.map((c) => c.anilistId)));
   };
 
   return (
+    <NavProvider value={{ openDetail, linksByShow, setLinks }}>
     <div className="min-h-screen">
       <SeasonSelector
         seasons={state.seasons}
@@ -1147,7 +1348,7 @@ export function App() {
         onManage={() => setManageOpen(true)}
         onJumpHome={handleJumpHome}
         onDiscover={(variant) => {
-          setView(
+          goTo(
             variant === 'season'
               ? 'discover-season'
               : variant === 'h'
@@ -1155,11 +1356,50 @@ export function App() {
                 : 'collection-favorites',
           );
         }}
-        activeDiscoverVariant={activeDiscoverVariant}
-        isScheduleActive={view === 'schedule'}
+        activeDiscoverVariant={detailId !== null ? null : activeDiscoverVariant}
+        isScheduleActive={detailId === null && view === 'schedule'}
+        onWatchlist={() => goTo('watchlist')}
+        isWatchlistActive={detailId === null && view === 'watchlist'}
       />
 
-      {view === 'discover-season' ? (
+      {detailId !== null && (
+        <AnimeDetailPage
+          key={detailId}
+          anilistId={detailId}
+          onBack={closeDetail}
+          progress={scheduleProgress.get(detailId)}
+          tracked={
+            state.seasons.some((s) => s.animes.some((a) => a.anilistId === detailId)) ||
+            collection.some((c) => c.anilistId === detailId)
+          }
+          onUpdateProgress={(next) => handleUpdateProgressByAnilistId(detailId, next)}
+          isAddedTo={isInNamedSeason}
+          onAdd={addItemToNamedSeason}
+          favorited={isFavorited(detailId)}
+          interested={isInterested(detailId)}
+          onToggleFavorite={toggleFavoriteFromDiscover}
+          onToggleInterested={toggleInterestedFromDiscover}
+        />
+      )}
+
+      <div className={detailId !== null ? 'hidden' : undefined}>
+      {view === 'watchlist' ? (
+        <WatchlistPage
+          items={watchItems}
+          progressOf={(id) => scheduleProgress.get(id)}
+          onUpdateProgress={handleUpdateProgressByAnilistId}
+          isFavorited={isFavorited}
+          onToggleFavorite={toggleFavoriteFromDiscover}
+          onExplore={() => goTo('discover-season')}
+          canEdit={(id) => latestScheduleEntry(id) !== undefined}
+          onEdit={(id) => {
+            const entry = latestScheduleEntry(id);
+            if (!entry) return;
+            setEditing(entry);
+            setModalOpen(true);
+          }}
+        />
+      ) : view === 'discover-season' ? (
         <DiscoverPage
           defaultRef={discoverDefaultRef}
           isAddedTo={isInNamedSeason}
@@ -1191,13 +1431,13 @@ export function App() {
           onAddHFavorite={addHFavorite}
           onRemoveHFavorite={removeHFavorite}
           hFavoritesCount={hFavorites.length}
-          onOpenFavorites={() => setView('h-favorites')}
+          onOpenFavorites={() => goTo('h-favorites')}
         />
       ) : view === 'h-favorites' ? (
         <HFavoritesPage
           items={hFavorites}
           onRemove={removeHFavorite}
-          onBack={() => setView('discover-h')}
+          onBack={() => goTo('discover-h')}
         />
       ) : view === 'collection-favorites' || view === 'collection-interested' ? (
         <CollectionPage
@@ -1206,7 +1446,7 @@ export function App() {
           onAdd={addToCollection}
           onRemove={removeFromCollection}
           onSwitchSection={(s) =>
-            setView(s === 'favorites' ? 'collection-favorites' : 'collection-interested')
+            goTo(s === 'favorites' ? 'collection-favorites' : 'collection-interested')
           }
           onImport={handleCollectionImport}
           onImportJson={handleCollectionJsonImport}
@@ -1250,6 +1490,7 @@ export function App() {
           exporting={exporting}
         />
       )}
+      </div>
 
       <AddAnimeModal
         open={modalOpen}
@@ -1267,6 +1508,8 @@ export function App() {
           if (matches.length === 0) return null;
           return matches.sort((a, b) => b.addedAt - a.addedAt)[0];
         }}
+        getLinks={(anilistId) => linksByShow.get(anilistId) ?? []}
+        onSaveLinks={setLinks}
         onClose={() => {
           setModalOpen(false);
           setEditing(null);
@@ -1283,6 +1526,7 @@ export function App() {
 
       {importProgress && <ImportOverlay progress={importProgress} />}
     </div>
+    </NavProvider>
   );
 }
 

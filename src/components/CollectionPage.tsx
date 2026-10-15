@@ -25,7 +25,9 @@ import {
   WATCH_STATUS_CLASS,
   WATCH_STATUS_SHORT,
 } from '@/lib/utils';
-import { DiscoverCard } from './DiscoverCard';
+import { BTN_PRIMARY, EYEBROW, FIELD, pillClass } from '@/lib/ui';
+import { CollectionCard } from './CollectionCard';
+import { PageHeader } from './PageHeader';
 import { TagFilterPicker } from './TagFilterPicker';
 import { AddToCollectionModal } from './AddToCollectionModal';
 import { useConfirm } from './ConfirmDialog';
@@ -96,6 +98,28 @@ export function CollectionPage({
   onUpdateProgress,
   onSetUserScore,
 }: Props) {
+
+  // A show can be in both lists; the card's heart / bookmark reflect both.
+  const inSection = (anilistId: number, which: CollectionSection) =>
+    collection.some((c) => c.anilistId === anilistId && c.section === which);
+  /** Removing from the list being viewed asks first, since the card goes away. */
+  const removeFrom = async (entry: CollectionEntry, which: CollectionSection) => {
+    if (which === section) {
+      const what = which === 'favorites' ? 'Favorites' : 'Interested';
+      const ok = await confirm({
+        title: `Remove from ${what}`,
+        message: `Remove "${entry.title}" from ${what}?`,
+        kind: 'danger',
+        confirmText: 'Remove',
+      });
+      if (!ok) return;
+    }
+    onRemove(entry.anilistId, which);
+  };
+  const toggleSection = async (entry: CollectionEntry, which: CollectionSection) => {
+    if (inSection(entry.anilistId, which)) await removeFrom(entry, which);
+    else onAdd(entry, which);
+  };
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<CollectionSort>('RELEASED_NEW');
   const [addOpen, setAddOpen] = useState(false);
@@ -252,87 +276,11 @@ export function CollectionPage({
   const otherCount = collection.filter((c) => c.section === otherSection).length;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6">
-      <div className="border-b border-zinc-800 pb-4 mb-6">
-        <p className="text-xs uppercase tracking-wider text-zinc-500 font-semibold">
-          My Collection
-        </p>
-        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          <button
-            type="button"
-            onClick={() => onSwitchSection('favorites')}
-            className={`text-2xl font-bold flex items-center gap-2 transition-colors ${
-              isFavoritesView ? 'text-rose-400' : 'text-zinc-500 hover:text-zinc-200'
-            }`}
-            title="Go to Favorites"
-          >
-            <Heart
-              className={`w-5 h-5 ${isFavoritesView ? 'fill-current' : ''}`}
-            />
-            Favorites
-            <span
-              className={`text-xs font-normal ${isFavoritesView ? 'text-zinc-500' : ''}`}
-            >
-              · {collection.filter((c) => c.section === 'favorites').length}
-            </span>
-          </button>
-          <span className="text-zinc-700">/</span>
-          <button
-            type="button"
-            onClick={() => onSwitchSection('interested')}
-            className={`text-2xl font-bold flex items-center gap-2 transition-colors ${
-              !isFavoritesView ? 'text-sky-400' : 'text-zinc-500 hover:text-zinc-200'
-            }`}
-            title="Go to Interested"
-          >
-            <Bookmark
-              className={`w-5 h-5 ${!isFavoritesView ? 'fill-current' : ''}`}
-            />
-            Interested
-            <span
-              className={`text-xs font-normal ${!isFavoritesView ? 'text-zinc-500' : ''}`}
-            >
-              · {collection.filter((c) => c.section === 'interested').length}
-            </span>
-          </button>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-3">
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setAddOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium shrink-0"
-              title={`Add anime to ${isFavoritesView ? 'Favorites' : 'Interested'}`}
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">Add</span>
-            </button>
-            <div className="relative flex-1 min-w-0">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={
-                  sectionItems.length > 0
-                    ? `Search ${sectionItems.length} title${sectionItems.length === 1 ? '' : 's'}…`
-                    : 'No entries yet'
-                }
-                disabled={sectionItems.length === 0}
-                className="w-full pl-9 pr-9 py-2 rounded-lg bg-zinc-950 border border-zinc-800 focus:border-indigo-500 outline-none text-sm disabled:opacity-50"
-              />
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => setSearch('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
-                  aria-label="Clear search"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+    <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+      <PageHeader
+        title="Collection"
+        actions={
+          <>
             <div ref={ioMenuRef} className="relative shrink-0">
               <input
                 ref={fileInputRef}
@@ -444,86 +392,140 @@ export function CollectionPage({
                 </div>
               )}
             </div>
-          </div>
-
-          {sectionItems.length > 0 && (
-            <>
-              <div className="flex items-center gap-3">
-                <label className="text-xs text-zinc-400 font-semibold uppercase tracking-wide">
-                  Sort
-                </label>
-                <select
-                  value={sort}
-                  onChange={(e) => setSort(e.target.value as CollectionSort)}
-                  className="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 focus:border-indigo-500 outline-none text-sm"
-                >
-                  <option value="RELEASED_NEW">Released — newest</option>
-                  <option value="RELEASED_OLD">Released — oldest</option>
-                  <option value="ADDED_NEW">Added — newest</option>
-                  <option value="ADDED_OLD">Added — oldest</option>
-                  <option value="TITLE_AZ">Title A → Z</option>
-                  <option value="TITLE_ZA">Title Z → A</option>
-                  <option value="SCORE_DESC">Score (high → low)</option>
-                </select>
-              </div>
-              <div className="flex items-start gap-3">
-                <label className="text-xs text-zinc-400 font-semibold uppercase tracking-wide pt-1.5">
-                  Watch
-                </label>
-                <div className="flex-1 min-w-0 flex flex-wrap gap-1.5">
-                  {STATUS_FILTER_OPTIONS.map((s) => {
-                    const active = selectedStatuses.has(s);
-                    return (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() =>
-                          setSelectedStatuses((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(s)) next.delete(s);
-                            else next.add(s);
-                            return next;
-                          })
-                        }
-                        className={`text-[11px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap transition ${
-                          active
-                            ? STATUS_FILTER_CLASS[s]
-                            : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
-                        }`}
-                        title={`Filter by ${STATUS_FILTER_LABEL[s]}`}
-                      >
-                        {STATUS_FILTER_LABEL[s]}
-                      </button>
-                    );
-                  })}
-                  {selectedStatuses.size > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedStatuses(new Set())}
-                      className="text-[11px] font-medium px-2 py-0.5 rounded-full border border-transparent text-zinc-500 hover:text-zinc-300"
-                      title="Clear status filter"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <label className="text-xs text-zinc-400 font-semibold uppercase tracking-wide pt-1.5">
-                  Tags
-                </label>
-                <div className="flex-1 min-w-0">
-                  <TagFilterPicker
-                    allTags={allTags}
-                    selected={selectedTags}
-                    onChange={setSelectedTags}
-                  />
-                </div>
-              </div>
-            </>
-          )}
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className={BTN_PRIMARY}
+              title={`Add anime to ${isFavoritesView ? 'Favorites' : 'Interested'}`}
+            >
+              <Plus className="w-4 h-4" />
+              Add
+            </button>
+          </>
+        }
+      >
+        {/* Favorites / Interested tabs */}
+        <div role="tablist" className="flex gap-1 border-b border-zinc-800">
+          {(
+            [
+              { key: 'favorites', label: 'Favorites', Icon: Heart, tone: 'border-rose-500 text-rose-300' },
+              { key: 'interested', label: 'Interested', Icon: Bookmark, tone: 'border-sky-500 text-sky-300' },
+            ] as const
+          ).map(({ key, label, Icon, tone }) => {
+            const active = section === key;
+            const n = collection.filter((c) => c.section === key).length;
+            return (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => onSwitchSection(key)}
+                className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                  active ? tone : 'border-transparent text-zinc-400 hover:text-zinc-100'
+                }`}
+              >
+                <Icon className={`h-4 w-4 ${active ? 'fill-current' : ''}`} />
+                {label}
+                <span className="rounded-full bg-zinc-800 px-1.5 text-[0.6875rem] font-semibold tabular-nums text-zinc-300">
+                  {n}
+                </span>
+              </button>
+            );
+          })}
         </div>
-      </div>
+
+        {sectionItems.length > 0 && (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className={`${FIELD} flex w-full items-center gap-2 sm:w-60`}>
+                <Search className="h-4 w-4 shrink-0 text-zinc-500" />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={`Filter ${sectionItems.length} title${sectionItems.length === 1 ? '' : 's'}…`}
+                  aria-label="Filter this list by title"
+                  className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-zinc-500"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    className="text-zinc-500 hover:text-zinc-300"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </label>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as CollectionSort)}
+                className={FIELD}
+                aria-label="Sort"
+              >
+                <option value="RELEASED_NEW">Released — newest</option>
+                <option value="RELEASED_OLD">Released — oldest</option>
+                <option value="ADDED_NEW">Added — newest</option>
+                <option value="ADDED_OLD">Added — oldest</option>
+                <option value="TITLE_AZ">Title A → Z</option>
+                <option value="TITLE_ZA">Title Z → A</option>
+                <option value="SCORE_DESC">Your score (high → low)</option>
+              </select>
+              <span className="mx-1 hidden h-5 border-l border-zinc-800 sm:block" aria-hidden />
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Watch status">
+                {STATUS_FILTER_OPTIONS.map((s) => {
+                  const active = selectedStatuses.has(s);
+                  const n = sectionItems.filter(
+                    (c) => (progressByAnilistId?.get(c.anilistId)?.watchStatus ?? UNTRACKED) === s,
+                  ).length;
+                  if (n === 0 && !active) return null;
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() =>
+                        setSelectedStatuses((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(s)) next.delete(s);
+                          else next.add(s);
+                          return next;
+                        })
+                      }
+                      className={
+                        active
+                          ? `inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs font-medium ${STATUS_FILTER_CLASS[s]}`
+                          : pillClass(false)
+                      }
+                      aria-pressed={active}
+                      title={`Filter by ${STATUS_FILTER_LABEL[s]}`}
+                    >
+                      {STATUS_FILTER_LABEL[s]} <span className="tabular-nums opacity-60">{n}</span>
+                    </button>
+                  );
+                })}
+                {selectedStatuses.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStatuses(new Set())}
+                    className="px-2 text-xs text-zinc-500 hover:text-zinc-300"
+                    title="Clear status filter"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className={`${EYEBROW} pt-1.5`}>Tags</span>
+              <div className="min-w-0 flex-1">
+                <TagFilterPicker allTags={allTags} selected={selectedTags} onChange={setSelectedTags} />
+              </div>
+            </div>
+          </>
+        )}
+      </PageHeader>
 
       {sectionItems.length === 0 && (
         <div className="text-center py-24 max-w-md mx-auto">
@@ -556,13 +558,14 @@ export function CollectionPage({
       {sorted.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
           {sorted.map((entry) => (
-            <DiscoverCard
+            <CollectionCard
               key={entry.anilistId}
-              item={entry}
-              alreadyAdded
-              onAdd={() => {}}
-              favorited={entry.section === 'favorites'}
-              interested={entry.section === 'interested'}
+              entry={entry}
+              favorited={inSection(entry.anilistId, 'favorites')}
+              interested={inSection(entry.anilistId, 'interested')}
+              onToggleFavorite={() => void toggleSection(entry, 'favorites')}
+              onToggleInterested={() => void toggleSection(entry, 'interested')}
+              onRemove={() => void removeFrom(entry, entry.section)}
               // Fall back to an empty progress object so the editor renders
               // even for items that have no stored progress yet (untouched
               // collection-only entries). totalEpisodes defaults to the
@@ -583,17 +586,6 @@ export function CollectionPage({
                   ? (score) => onSetUserScore(entry.anilistId, score)
                   : undefined
               }
-              onRemove={async () => {
-                const what =
-                  entry.section === 'favorites' ? 'Favorites' : 'Interested';
-                const ok = await confirm({
-                  title: `Remove from ${what}`,
-                  message: `Remove "${entry.title}" from ${what}?`,
-                  kind: 'danger',
-                  confirmText: 'Remove',
-                });
-                if (ok) onRemove(entry.anilistId, entry.section);
-              }}
             />
           ))}
         </div>

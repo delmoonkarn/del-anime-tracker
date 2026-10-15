@@ -16,6 +16,8 @@ import type {
   HFavoriteEntry,
   HPrefs,
   Season,
+  StreamLink,
+  StreamLinksMap,
   WatchStatus,
 } from '../src/lib/types';
 
@@ -124,6 +126,21 @@ db.exec(`
     next_airing_at INTEGER,
     user_score INTEGER,
     updated_at INTEGER NOT NULL
+  );
+
+  /* "Where to watch" links, keyed by AniList ID like anime_progress: one
+     show can have many links (Netflix + Bilibili + ...), and every schedule
+     row / collection row for that show shares them. position keeps the
+     order the user put them in. Unbound schedule rows (anilist_id = 0) keep
+     using anime_entries.platform / platform_url instead. */
+  CREATE TABLE IF NOT EXISTS stream_links (
+    anilist_id INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    site TEXT NOT NULL,
+    url TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (anilist_id, position),
+    UNIQUE (anilist_id, url)
   );
 `);
 
@@ -274,6 +291,54 @@ try {
   }
 } catch (err) {
   console.warn('[db] discover_cache invalidation skipped:', err);
+}
+
+// One-shot copy of every bound schedule row's platform / platform_url into
+// stream_links (de-duplicated per show by URL). The anime_entries columns are
+// left as they are; the client stops using them for bound shows once the
+// show's links are edited. Gated by a kv_store flag so it runs once.
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+try {
+  const flagKey = 'stream-links-migrated-v1';
+  const flag = db.prepare('SELECT 1 FROM kv_store WHERE key = ?').get(flagKey);
+  if (!flag) {
+    const rows = db
+      .prepare(
+        `SELECT anilist_id, platform, platform_url, added_at FROM anime_entries
+         WHERE anilist_id > 0 AND platform_url IS NOT NULL AND TRIM(platform_url) != ''
+         ORDER BY added_at ASC`,
+      )
+      .all() as { anilist_id: number; platform: string | null; platform_url: string; added_at: number }[];
+    const nextPos = db.prepare(
+      'SELECT COALESCE(MAX(position) + 1, 0) AS p FROM stream_links WHERE anilist_id = ?',
+    );
+    const ins = db.prepare(
+      `INSERT OR IGNORE INTO stream_links (anilist_id, position, site, url, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    let copied = 0;
+    db.transaction(() => {
+      for (const r of rows) {
+        const url = r.platform_url.trim();
+        const site = r.platform?.trim() || hostOf(url);
+        const { p } = nextPos.get(r.anilist_id) as { p: number };
+        copied += ins.run(r.anilist_id, p, site, url, r.added_at).changes;
+      }
+      db.prepare(
+        `INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      ).run(flagKey, JSON.stringify(true), Date.now());
+    })();
+    if (copied > 0) console.info(`[db] copied ${copied} platform link(s) into stream_links`);
+  }
+} catch (err) {
+  console.warn('[db] stream_links migration skipped:', err);
 }
 
 // ---- AppState (seasons + anime entries + activeSeasonId) -----------------
@@ -602,6 +667,51 @@ function writeCollection(items: CollectionEntry[]): void {
   writeCollectionTxn(items);
 }
 
+// ---- Stream links ---------------------------------------------------------
+
+/** { [anilistId]: StreamLink[] } in the user's order. */
+function readStreamLinks(): StreamLinksMap {
+  const rows = db
+    .prepare('SELECT anilist_id, site, url FROM stream_links ORDER BY anilist_id, position')
+    .all() as { anilist_id: number; site: string; url: string }[];
+  const out: StreamLinksMap = {};
+  for (const r of rows) (out[r.anilist_id] ??= []).push({ site: r.site, url: r.url });
+  return out;
+}
+
+const writeStreamLinksTxn = db.transaction((map: StreamLinksMap) => {
+  // Keep each link's original created_at across rewrites.
+  const created = new Map<string, number>();
+  for (const r of db.prepare('SELECT anilist_id, url, created_at FROM stream_links').all() as {
+    anilist_id: number;
+    url: string;
+    created_at: number;
+  }[]) {
+    created.set(`${r.anilist_id} ${r.url}`, r.created_at);
+  }
+  db.prepare('DELETE FROM stream_links').run();
+  const ins = db.prepare(
+    `INSERT OR IGNORE INTO stream_links (anilist_id, position, site, url, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+  const now = Date.now();
+  for (const [key, links] of Object.entries(map ?? {})) {
+    const anilistId = Number(key);
+    if (!Number.isInteger(anilistId) || anilistId <= 0 || !Array.isArray(links)) continue;
+    let position = 0;
+    for (const l of links as StreamLink[]) {
+      const url = typeof l?.url === 'string' ? l.url.trim() : '';
+      if (!url) continue;
+      const site = (typeof l.site === 'string' && l.site.trim()) || hostOf(url);
+      if (ins.run(anilistId, position, site, url, created.get(`${anilistId} ${url}`) ?? now).changes) position++;
+    }
+  }
+});
+
+function writeStreamLinks(map: StreamLinksMap): void {
+  writeStreamLinksTxn(map);
+}
+
 // ---- Discover cache -------------------------------------------------------
 
 interface DiscoverRow {
@@ -765,7 +875,8 @@ export type DbKey =
   | 'discover-cache'
   | 'tags'
   | 'h-prefs'
-  | 'h-favorites';
+  | 'h-favorites'
+  | 'stream-links';
 
 export function readByKey(key: DbKey): unknown {
   switch (key) {
@@ -781,6 +892,8 @@ export function readByKey(key: DbKey): unknown {
       return readKv('h-prefs') as HPrefs | null;
     case 'h-favorites':
       return readHFavorites();
+    case 'stream-links':
+      return readStreamLinks();
   }
 }
 
@@ -803,6 +916,9 @@ export function writeByKey(key: DbKey, value: unknown): void {
       return;
     case 'h-favorites':
       writeHFavorites(value as HFavoriteEntry[]);
+      return;
+    case 'stream-links':
+      writeStreamLinks(value as StreamLinksMap);
       return;
   }
 }

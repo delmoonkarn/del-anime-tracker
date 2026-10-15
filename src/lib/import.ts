@@ -6,6 +6,8 @@ import type {
   DayOfWeek,
   ReleaseDate,
   Season,
+  StreamLink,
+  StreamLinksMap,
   WatchStatus,
 } from './types';
 import {
@@ -458,6 +460,28 @@ export async function importScheduleJson(file: File): Promise<Season[]> {
     throw new JsonImportError('Backup is missing the `seasons` array.');
   }
   return parsed.seasons;
+}
+
+/** The `streamLinks` map saved in a schedule / collection JSON backup
+ *  (empty for backups made before links were included). */
+export async function readBackupLinks(file: File): Promise<StreamLinksMap> {
+  try {
+    const raw = (await readJson(file)) as { streamLinks?: unknown } | null;
+    const map = raw?.streamLinks;
+    if (!map || typeof map !== 'object') return {};
+    const out: StreamLinksMap = {};
+    for (const [id, links] of Object.entries(map as Record<string, unknown>)) {
+      const n = Number(id);
+      if (!Number.isInteger(n) || n <= 0 || !Array.isArray(links)) continue;
+      const clean = links
+        .filter((l): l is StreamLink => !!l && typeof l.url === 'string' && typeof l.site === 'string')
+        .map((l) => ({ site: l.site, url: l.url }));
+      if (clean.length > 0) out[n] = clean;
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 export async function importCollectionJson(

@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Loader2, RefreshCcw, Search, X } from 'lucide-react';
-import type { AnilistMedia, AnimeEntry, DayOfWeek } from '@/lib/types';
+import type { AnilistMedia, AnimeEntry, DayOfWeek, StreamLink } from '@/lib/types';
 import {
   DAYS,
   DAY_LABELS,
-  PLATFORM_PRESETS,
   deriveDayFromStartDate,
   deriveDayTimeFromAiringAt,
   newId,
 } from '@/lib/utils';
 import { searchAnime } from '@/lib/anilist';
 import { useDebounce } from '@/hooks/useDebounce';
+import { LinksEditor, cleanLinks } from './LinksEditor';
 
 interface Props {
   open: boolean;
@@ -20,8 +20,19 @@ interface Props {
    *  airing-slot fields from that sibling. Caller returns null when no
    *  sibling exists or when the anilistId is 0 (unbound). */
   findSiblingForAnilist?: (anilistId: number) => AnimeEntry | null;
+  /** The show's saved streaming links (shared by every season). */
+  getLinks: (anilistId: number) => StreamLink[];
+  /** Saves a show's streaming links. Only called for AniList-bound entries;
+   *  unbound ones keep a single link in platform / platformUrl. */
+  onSaveLinks: (anilistId: number, links: StreamLink[]) => void;
   onClose: () => void;
   onSave: (entry: AnimeEntry) => void;
+}
+
+function sameLinks(a: StreamLink[], b: StreamLink[]): boolean {
+  const ca = cleanLinks(a);
+  const cb = cleanLinks(b);
+  return ca.length === cb.length && ca.every((l, i) => l.url === cb[i].url && l.site === cb[i].site);
 }
 
 interface SelectedAnime {
@@ -58,6 +69,8 @@ export function AddAnimeModal({
   open,
   initial,
   findSiblingForAnilist,
+  getLinks,
+  onSaveLinks,
   onClose,
   onSave,
 }: Props) {
@@ -73,8 +86,9 @@ export function AddAnimeModal({
   const [titleEnglish, setTitleEnglish] = useState('');
   const [day, setDay] = useState<DayOfWeek | ''>('');
   const [time, setTime] = useState('');
-  const [platform, setPlatform] = useState('');
-  const [platformUrl, setPlatformUrl] = useState('');
+  const [links, setLinks] = useState<StreamLink[]>([]);
+  /** Show whose saved links were auto-filled into the form (null = none / typed by hand). */
+  const [linksFrom, setLinksFrom] = useState<number | null>(null);
   const [status, setStatus] = useState('');
 
   useEffect(() => {
@@ -94,8 +108,14 @@ export function AddAnimeModal({
       setTitleEnglish(initial.titleEnglish ?? '');
       setDay(initial.day ?? '');
       setTime(initial.time);
-      setPlatform(initial.platform);
-      setPlatformUrl(initial.platformUrl);
+      setLinks(
+        initial.anilistId > 0
+          ? getLinks(initial.anilistId)
+          : initial.platformUrl
+            ? [{ site: initial.platform, url: initial.platformUrl }]
+            : [],
+      );
+      setLinksFrom(initial.anilistId > 0 ? initial.anilistId : null);
       setStatus(initial.status);
     } else {
       setSelected(null);
@@ -103,8 +123,8 @@ export function AddAnimeModal({
       setTitleEnglish('');
       setDay('');
       setTime('');
-      setPlatform('');
-      setPlatformUrl('');
+      setLinks([]);
+      setLinksFrom(null);
       setStatus('');
     }
     setQuery('');
@@ -154,16 +174,21 @@ export function AddAnimeModal({
     const finalTitle = title.trim();
     if (!finalTitle) return;
     const finalEnglish = titleEnglish.trim();
+    const anilistId = selected?.anilistId ?? initial?.anilistId ?? 0;
+    const finalLinks = cleanLinks(links);
+    // Bound shows keep their links in the shared stream_links table; an
+    // unbound entry stores its one link on the row itself.
+    if (anilistId > 0) onSaveLinks(anilistId, finalLinks);
     const entry: AnimeEntry = {
       id: initial?.id ?? newId(),
-      anilistId: selected?.anilistId ?? initial?.anilistId ?? 0,
+      anilistId,
       title: finalTitle,
       titleEnglish: finalEnglish || undefined,
       imageUrl: selected?.imageUrl ?? initial?.imageUrl ?? '',
       day: (day || null) as DayOfWeek | null,
       time,
-      platform,
-      platformUrl,
+      platform: anilistId > 0 ? '' : (finalLinks[0]?.site ?? ''),
+      platformUrl: anilistId > 0 ? '' : (finalLinks[0]?.url ?? ''),
       status,
       // Preserve any progress already tracked on the entry — editing the
       // metadata shouldn't reset the user's episode count or watch status.
@@ -289,11 +314,16 @@ export function AddAnimeModal({
                             const timeHint = sibling?.time || fromAiring?.time;
                             if (!day && dayHint) setDay(dayHint);
                             if (!time && timeHint) setTime(timeHint);
-                            if (!platform && sibling?.platform) {
-                              setPlatform(sibling.platform);
-                            }
-                            if (!platformUrl && sibling?.platformUrl) {
-                              setPlatformUrl(sibling.platformUrl);
+                            // Links belong to the show, so the picked show
+                            // brings its saved links along — replacing the
+                            // form's links unless you typed your own (links
+                            // auto-filled from a previous pick get swapped).
+                            const untouched =
+                              links.every((l) => !l.url.trim()) ||
+                              (linksFrom !== null && sameLinks(links, getLinks(linksFrom)));
+                            if (untouched) {
+                              setLinks(getLinks(r.id));
+                              setLinksFrom(r.id);
                             }
                             if (!status && sibling?.status) {
                               setStatus(sibling.status);
@@ -408,28 +438,13 @@ export function AddAnimeModal({
                 />
               </Field>
 
-              <Field label="Platform">
-                <input
-                  value={platform}
-                  onChange={(e) => setPlatform(e.target.value)}
-                  list="platform-presets"
-                  placeholder="e.g. Bilibili"
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 focus:border-indigo-500 outline-none text-sm"
-                />
-                <datalist id="platform-presets">
-                  {PLATFORM_PRESETS.map((p) => (
-                    <option key={p} value={p} />
-                  ))}
-                </datalist>
-              </Field>
-
-              <Field label="Platform URL">
-                <input
-                  type="url"
-                  value={platformUrl}
-                  onChange={(e) => setPlatformUrl(e.target.value)}
-                  placeholder="https://…"
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 focus:border-indigo-500 outline-none text-sm"
+              <Field label="Where to watch" full>
+                <LinksEditor
+                  links={links}
+                  onChange={setLinks}
+                  // Without an AniList match there's no shared links table
+                  // row to hang more than one link on.
+                  max={(selected?.anilistId ?? initial?.anilistId ?? 0) > 0 ? undefined : 1}
                 />
               </Field>
 

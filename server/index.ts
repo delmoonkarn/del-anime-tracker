@@ -26,6 +26,7 @@ const ALLOWED: ReadonlySet<DbKey> = new Set<DbKey>([
   'tags',
   'h-prefs',
   'h-favorites',
+  'stream-links',
 ]);
 function isAllowed(key: string): key is DbKey {
   return ALLOWED.has(key as DbKey);

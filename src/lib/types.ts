@@ -78,7 +78,20 @@ export interface AnilistMedia {
    *  the currently-viewed season. */
   season?: AnimeSeason | null;
   seasonYear?: number | null;
+  /** RELEASING / FINISHED / NOT_YET_RELEASED / CANCELLED / HIATUS. */
+  status?: string | null;
 }
+
+/** A "where to watch" link: the platform + URL set on a schedule entry.
+ *  (AniList's own streaming links are region-specific and unreliable, so
+ *  they're deliberately not used.) */
+export interface StreamLink {
+  site: string;
+  url: string;
+}
+
+/** Streaming links per show, keyed by AniList id (stream_links table). */
+export type StreamLinksMap = Record<number, StreamLink[]>;
 
 export interface ReleaseDate {
   year: number | null;
@@ -109,6 +122,8 @@ export interface DiscoverItem {
    *  so the "X behind" indicator works immediately without a fresh API call. */
   nextAiringEpisode?: number;
   nextAiringAt?: number;
+  /** AniList airing status (RELEASING, FINISHED, ...). */
+  status?: string;
 }
 
 export interface DiscoverCacheEntry {
@@ -129,6 +144,7 @@ export type DiscoverVariant = 'season' | 'h' | 'collection';
 
 export type AppView =
   | 'schedule'
+  | 'watchlist'
   | 'discover-season'
   | 'discover-h'
   | 'h-favorites'

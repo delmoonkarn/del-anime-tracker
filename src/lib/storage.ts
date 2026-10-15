@@ -5,6 +5,7 @@ import type {
   DiscoverCache,
   HFavoriteEntry,
   HPrefs,
+  StreamLinksMap,
 } from './types';
 
 // Storage layer notes
@@ -26,6 +27,7 @@ const LEGACY_KEYS: Record<StorageKey, string> = {
   'h-prefs': 'anime-tracker-hentai-prefs-v3',
   // No legacy localStorage for H favorites — it's a new feature.
   'h-favorites': '',
+  'stream-links': '',
 };
 
 type StorageKey =
@@ -34,7 +36,8 @@ type StorageKey =
   | 'discover-cache'
   | 'tags'
   | 'h-prefs'
-  | 'h-favorites';
+  | 'h-favorites'
+  | 'stream-links';
 
 async function readApi<T>(key: StorageKey): Promise<T | null> {
   if (typeof window === 'undefined') return null;
@@ -181,4 +184,12 @@ export async function loadHFavorites(): Promise<HFavoriteEntry[]> {
 
 export function saveHFavorites(items: HFavoriteEntry[]): void {
   scheduleSave('h-favorites', items);
+}
+
+export async function loadStreamLinks(): Promise<StreamLinksMap> {
+  return (await loadOrMigrate<StreamLinksMap>('stream-links')) ?? {};
+}
+
+export function saveStreamLinks(map: StreamLinksMap): void {
+  scheduleSave('stream-links', map);
 }
