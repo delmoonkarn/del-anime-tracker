@@ -168,10 +168,11 @@ function BackButton({ onBack, floating = true }: { onBack: () => void; floating?
     <button
       type="button"
       onClick={onBack}
+      // No box behind it: over the banner a dark outline keeps it readable.
       className={
         floating
-          ? 'absolute left-3 top-3 z-10 inline-flex h-8 items-center gap-1 rounded-lg bg-black/45 px-3 text-sm font-medium text-white backdrop-blur-sm hover:bg-black/65'
-          : `${BTN}`
+          ? 'absolute left-3 top-3 z-10 inline-flex h-8 items-center gap-1 px-1 text-sm font-medium text-white drop-shadow-[0_0_3px_rgba(0,0,0,0.85)] transition-colors hover:text-indigo-300'
+          : 'inline-flex h-8 items-center gap-1 text-sm font-medium text-zinc-300 transition-colors hover:text-indigo-300'
       }
     >
       <ChevronLeft className="h-4 w-4" />

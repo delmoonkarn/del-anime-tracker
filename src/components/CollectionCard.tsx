@@ -85,25 +85,28 @@ export function CollectionCard({
         </button>
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-end gap-1.5 p-2">
           {interested && (
-            <span
-              className={`${POSTER_ICON} text-sky-400`}
-              title="In your Interested list"
+            <button
+              type="button"
+              className={`${POSTER_ICON} pointer-events-auto text-sky-400 transition-colors hover:text-sky-200`}
+              aria-label="Remove from Interested"
+              title="Remove from Interested"
+              onClick={onToggleInterested}
             >
               <Bookmark className="h-5 w-5 fill-current" />
-            </span>
+            </button>
           )}
-          <button
-            type="button"
-            className={`${POSTER_ICON} pointer-events-auto transition-colors ${
-              favorited ? 'text-rose-500' : 'text-white hover:text-rose-300'
-            }`}
-            aria-pressed={favorited}
-            aria-label={favorited ? 'Remove from favorites' : 'Add to favorites'}
-            title={favorited ? 'Remove from favorites' : 'Add to favorites'}
-            onClick={onToggleFavorite}
-          >
-            <Heart className={`h-5 w-5 ${favorited ? 'fill-current' : ''}`} />
-          </button>
+          {/* Only a favorite shows the heart; adding one is in the menu. */}
+          {favorited && (
+            <button
+              type="button"
+              className={`${POSTER_ICON} pointer-events-auto text-rose-500 transition-colors hover:text-rose-300`}
+              aria-label="Remove from favorites"
+              title="Remove from favorites"
+              onClick={onToggleFavorite}
+            >
+              <Heart className="h-5 w-5 fill-current" />
+            </button>
+          )}
         </div>
         <ServiceLinks links={links} title={entry.title} className="absolute bottom-2 left-2" />
       </div>
@@ -189,6 +192,17 @@ export function CollectionCard({
             {menuOpen && (
               // Opens upward so the next row of cards can't cover it.
               <div className={`${MENU} absolute bottom-full right-0 mb-1 w-40 p-1 text-sm`}>
+                <button
+                  type="button"
+                  className={`${MENU_ITEM} ${favorited ? 'text-rose-300' : ''}`}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onToggleFavorite();
+                  }}
+                >
+                  <Heart className={`h-3.5 w-3.5 ${favorited ? 'fill-current' : ''}`} />
+                  {favorited ? 'Unfavorite' : 'Favorite'}
+                </button>
                 <button
                   type="button"
                   className={`${MENU_ITEM} ${interested ? 'text-sky-300' : ''}`}
