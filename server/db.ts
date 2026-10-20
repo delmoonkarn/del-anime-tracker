@@ -1,8 +1,14 @@
 // Server-side only. Lives under server/ so it can't be imported from the
 // client by accident. Types are shared with the frontend via @/lib/types.
-import Database from 'better-sqlite3';
-import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs';
-import { join } from 'node:path';
+//
+// Storage logic, written against the SqlDb interface (server/sql.ts) so it
+// runs unchanged on local SQLite and on Cloudflare D1 — no Node APIs in here.
+// Schema and upgrades of old databases live with the backend that opens the
+// database (server/sqlite.ts).
+//
+// Every write takes the client's whole value for a key, but only writes the
+// rows that differ from what's stored: ticking one episode writes one row
+// rather than rewriting every table it touches.
 import type {
   AnilistTag,
   AnimeEntry,
@@ -21,336 +27,33 @@ import type {
   StreamLinksMap,
   WatchStatus,
 } from '../src/lib/types';
+import {
+  deleteRowsNotIn,
+  sql,
+  upsertRows,
+  type SqlDb,
+  type SqlStatement,
+  type SqlValue,
+  type TableSpec,
+} from './sql';
 
-const DATA_DIR = join(process.cwd(), 'data');
-const DB_PATH = join(DATA_DIR, 'anime-tracker.db');
-
-mkdirSync(DATA_DIR, { recursive: true });
-
-// Reuse one connection per process. The globalThis cache survives `tsx`
-// watch-mode re-imports so we don't pile up connections during dev.
-const g = globalThis as unknown as { __animeTrackerDb?: Database.Database };
-const db: Database.Database = g.__animeTrackerDb ?? new Database(DB_PATH);
-g.__animeTrackerDb = db;
-
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-
-// ---- Schema ---------------------------------------------------------------
-db.exec(`
-  CREATE TABLE IF NOT EXISTS seasons (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS anime_entries (
-    id TEXT PRIMARY KEY,
-    season_id TEXT NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
-    anilist_id INTEGER NOT NULL DEFAULT 0,
-    title TEXT NOT NULL,
-    title_english TEXT,
-    image_url TEXT,
-    day TEXT,
-    time TEXT,
-    platform TEXT,
-    platform_url TEXT,
-    status TEXT,
-    added_at INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_anime_season ON anime_entries(season_id);
-
-  CREATE TABLE IF NOT EXISTS collection (
-    anilist_id INTEGER NOT NULL,
-    section TEXT NOT NULL,
-    title TEXT NOT NULL,
-    title_english TEXT,
-    image_url TEXT,
-    description TEXT,
-    tags_json TEXT,
-    format TEXT,
-    episodes INTEGER,
-    average_score INTEGER,
-    start_year INTEGER,
-    start_month INTEGER,
-    start_day INTEGER,
-    added_at INTEGER NOT NULL,
-    PRIMARY KEY (anilist_id, section)
-  );
-
-  CREATE TABLE IF NOT EXISTS discover_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    season TEXT NOT NULL,
-    year INTEGER NOT NULL,
-    tags_json TEXT NOT NULL,
-    fetched_at INTEGER NOT NULL,
-    items_json TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_discover_lookup ON discover_cache(season, year);
-
-  CREATE TABLE IF NOT EXISTS kv_store (
-    key TEXT PRIMARY KEY,
-    value TEXT,
-    updated_at INTEGER NOT NULL
-  );
-
-  /* H favorites — intentionally separate from collection. */
-  CREATE TABLE IF NOT EXISTS h_favorites (
-    anilist_id INTEGER PRIMARY KEY,
-    title TEXT NOT NULL,
-    title_english TEXT,
-    image_url TEXT,
-    description TEXT,
-    tags_json TEXT,
-    format TEXT,
-    episodes INTEGER,
-    average_score INTEGER,
-    start_year INTEGER,
-    start_month INTEGER,
-    start_day INTEGER,
-    added_at INTEGER NOT NULL
-  );
-
-  /* Watch progress + user score, keyed by AniList ID. One row per show,
-     shared across every anime_entries row AND every collection row that
-     references the same anilist_id (e.g. a split-cour show in Fall 2025 +
-     Winter 2026 schedule sheets, or a show in both Favorites and
-     Interested). On read, readAppState / readCollection LEFT JOIN this so
-     the same progress and rating appear on every card for the show.
-     user_score is collection-driven (1–5); schedule writes don't touch it. */
-  CREATE TABLE IF NOT EXISTS anime_progress (
-    anilist_id INTEGER PRIMARY KEY,
-    watch_status TEXT,
-    episodes_watched INTEGER,
-    total_episodes INTEGER,
-    next_airing_episode INTEGER,
-    next_airing_at INTEGER,
-    user_score INTEGER,
-    updated_at INTEGER NOT NULL
-  );
-
-  /* "Where to watch" links, keyed by AniList ID like anime_progress: one
-     show can have many links (Netflix + Bilibili + ...), and every schedule
-     row / collection row for that show shares them. position keeps the
-     order the user put them in. Unbound schedule rows (anilist_id = 0) keep
-     using anime_entries.platform / platform_url instead. */
-  CREATE TABLE IF NOT EXISTS stream_links (
-    anilist_id INTEGER NOT NULL,
-    position INTEGER NOT NULL,
-    site TEXT NOT NULL,
-    url TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (anilist_id, position),
-    UNIQUE (anilist_id, url)
-  );
-
-  /* Cache of AniList's streaming links, one row per show (links as JSON,
-     already filtered: STREAMING only, no official site / Twitter / X, one
-     per service). Derived data: safe to clear; fetched_at drives the
-     weekly refresh. Shows AniList has no links for keep an empty row so
-     they aren't asked for again until it's stale. */
-  CREATE TABLE IF NOT EXISTS anilist_link_cache (
-    anilist_id INTEGER PRIMARY KEY,
-    fetched_at INTEGER NOT NULL,
-    links_json TEXT NOT NULL
-  );
-`);
-
-// One-time migration: older databases used a `hentai_favorites` table and a
-// kv_store key named `hentai-prefs`. Move them over to the new H-prefixed
-// names so existing users don't lose their data.
-try {
-  const oldTable = db
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='hentai_favorites'")
-    .get();
-  if (oldTable) {
-    db.exec(`
-      INSERT OR IGNORE INTO h_favorites SELECT * FROM hentai_favorites;
-      DROP TABLE hentai_favorites;
-    `);
-    console.info('[db] migrated hentai_favorites → h_favorites');
-  }
-  const oldPrefs = db
-    .prepare("SELECT value FROM kv_store WHERE key = 'hentai-prefs'")
-    .get() as { value: string | null } | undefined;
-  if (oldPrefs && oldPrefs.value != null) {
-    db.prepare(
-      `INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-    ).run('h-prefs', oldPrefs.value, Date.now());
-    db.prepare("DELETE FROM kv_store WHERE key = 'hentai-prefs'").run();
-    console.info('[db] migrated kv_store hentai-prefs → h-prefs');
-  }
-} catch (err) {
-  console.warn('[db] H rename migration skipped:', err);
-}
-
-// Add `tags_full` column to `collection` if it's missing (old DBs).
-try {
-  const cols = db.prepare("PRAGMA table_info(collection)").all() as { name: string }[];
-  if (!cols.some((c) => c.name === 'tags_full')) {
-    db.exec('ALTER TABLE collection ADD COLUMN tags_full INTEGER NOT NULL DEFAULT 0');
-    console.info('[db] added collection.tags_full column');
-  }
-} catch (err) {
-  console.warn('[db] tags_full migration skipped:', err);
-}
-
-// Watch-progress columns on anime_entries (added incrementally per feature
-// shipped — see `WatchStatus` in types.ts). All three are nullable: existing
-// rows mean "user hasn't engaged with the tracker yet", which the UI renders
-// as the dimmed "— Status —" pill and an episodes-watched count of 0.
-try {
-  const cols = db.prepare("PRAGMA table_info(anime_entries)").all() as { name: string }[];
-  const has = new Set(cols.map((c) => c.name));
-  if (!has.has('watch_status')) {
-    db.exec('ALTER TABLE anime_entries ADD COLUMN watch_status TEXT');
-    console.info('[db] added anime_entries.watch_status column');
-  }
-  if (!has.has('episodes_watched')) {
-    db.exec('ALTER TABLE anime_entries ADD COLUMN episodes_watched INTEGER');
-    console.info('[db] added anime_entries.episodes_watched column');
-  }
-  if (!has.has('total_episodes')) {
-    db.exec('ALTER TABLE anime_entries ADD COLUMN total_episodes INTEGER');
-    console.info('[db] added anime_entries.total_episodes column');
-  }
-  if (!has.has('next_airing_episode')) {
-    db.exec('ALTER TABLE anime_entries ADD COLUMN next_airing_episode INTEGER');
-    console.info('[db] added anime_entries.next_airing_episode column');
-  }
-  if (!has.has('next_airing_at')) {
-    db.exec('ALTER TABLE anime_entries ADD COLUMN next_airing_at INTEGER');
-    console.info('[db] added anime_entries.next_airing_at column');
-  }
-  if (!has.has('format')) {
-    // AniList MediaFormat string (TV, MOVIE, OVA, SPECIAL, ONA, TV_SHORT,
-    // MUSIC). Lets the schedule grid bucket movies into their own block
-    // separate from the day-of-week grouping the rest of the cards use.
-    db.exec('ALTER TABLE anime_entries ADD COLUMN format TEXT');
-    console.info('[db] added anime_entries.format column');
-  }
-} catch (err) {
-  console.warn('[db] watch-progress migration skipped:', err);
-}
-
-// Add `user_score` column to `anime_progress` if it's missing (old DBs).
-// Stores the user's 1–5 rating for a show, broadcast from the collection
-// card. Schedule writes never touch this column.
-try {
-  const cols = db.prepare("PRAGMA table_info(anime_progress)").all() as { name: string }[];
-  if (!cols.some((c) => c.name === 'user_score')) {
-    db.exec('ALTER TABLE anime_progress ADD COLUMN user_score INTEGER');
-    console.info('[db] added anime_progress.user_score column');
-  }
-} catch (err) {
-  console.warn('[db] user_score migration skipped:', err);
-}
-
-// One-shot backfill of anime_progress from anime_entries. For each AniList
-// ID that has any watch-related field populated, we collapse its rows into
-// a single progress row using MAX() per column. Picks the highest-watched
-// state, the latest cached airing data, and consolidates total_episodes.
-// (watch_status is alphabetical MAX — usually NULL for most rows so collisions
-// are rare; user can re-set via dropdown if it picks the wrong status.)
-// Gated: only runs when anime_progress is empty, so re-imports don't
-// stomp on already-shared progress.
-try {
-  const empty = (db.prepare('SELECT COUNT(*) AS n FROM anime_progress').get() as { n: number }).n === 0;
-  if (empty) {
-    const result = db.prepare(`
-      INSERT INTO anime_progress (anilist_id, watch_status, episodes_watched, total_episodes, next_airing_episode, next_airing_at, updated_at)
-      SELECT
-        anilist_id,
-        MAX(watch_status),
-        MAX(episodes_watched),
-        MAX(total_episodes),
-        MAX(next_airing_episode),
-        MAX(next_airing_at),
-        MAX(added_at)
-      FROM anime_entries
-      WHERE anilist_id > 0
-        AND (
-          watch_status IS NOT NULL
-          OR episodes_watched IS NOT NULL
-          OR total_episodes IS NOT NULL
-          OR next_airing_episode IS NOT NULL
-          OR next_airing_at IS NOT NULL
-        )
-      GROUP BY anilist_id
-    `).run();
-    if (result.changes > 0) {
-      console.info(`[db] backfilled anime_progress with ${result.changes} show(s)`);
-    }
-  }
-} catch (err) {
-  console.warn('[db] anime_progress backfill skipped:', err);
-}
-
-// One-shot wipe of `discover_cache`: pre-airing-data caches stored
-// DiscoverItems without `nextAiringEpisode`/`nextAiringAt`, which breaks the
-// auto day/time fill on Add. Gated by a kv_store flag so it only runs once.
-try {
-  const flagKey = 'discover-cache-airing-cleared-v1';
-  const flag = db.prepare('SELECT 1 FROM kv_store WHERE key = ?').get(flagKey);
-  if (!flag) {
-    db.exec('DELETE FROM discover_cache');
-    db.prepare(
-      `INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-    ).run(flagKey, JSON.stringify(true), Date.now());
-    console.info('[db] cleared discover_cache for airing-data migration');
-  }
-} catch (err) {
-  console.warn('[db] discover_cache invalidation skipped:', err);
-}
-
-// One-shot copy of every bound schedule row's platform / platform_url into
-// stream_links (de-duplicated per show by URL). The anime_entries columns are
-// left as they are; the client stops using them for bound shows once the
-// show's links are edited. Gated by a kv_store flag so it runs once.
-function hostOf(url: string): string {
+export function hostOf(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {
     return url;
   }
 }
-try {
-  const flagKey = 'stream-links-migrated-v1';
-  const flag = db.prepare('SELECT 1 FROM kv_store WHERE key = ?').get(flagKey);
-  if (!flag) {
-    const rows = db
-      .prepare(
-        `SELECT anilist_id, platform, platform_url, added_at FROM anime_entries
-         WHERE anilist_id > 0 AND platform_url IS NOT NULL AND TRIM(platform_url) != ''
-         ORDER BY added_at ASC`,
-      )
-      .all() as { anilist_id: number; platform: string | null; platform_url: string; added_at: number }[];
-    const nextPos = db.prepare(
-      'SELECT COALESCE(MAX(position) + 1, 0) AS p FROM stream_links WHERE anilist_id = ?',
-    );
-    const ins = db.prepare(
-      `INSERT OR IGNORE INTO stream_links (anilist_id, position, site, url, created_at)
-       VALUES (?, ?, ?, ?, ?)`,
-    );
-    let copied = 0;
-    db.transaction(() => {
-      for (const r of rows) {
-        const url = r.platform_url.trim();
-        const site = r.platform?.trim() || hostOf(url);
-        const { p } = nextPos.get(r.anilist_id) as { p: number };
-        copied += ins.run(r.anilist_id, p, site, url, r.added_at).changes;
-      }
-      db.prepare(
-        `INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-      ).run(flagKey, JSON.stringify(true), Date.now());
-    })();
-    if (copied > 0) console.info(`[db] copied ${copied} platform link(s) into stream_links`);
-  }
-} catch (err) {
-  console.warn('[db] stream_links migration skipped:', err);
+
+function kvStatement(key: string, value: string | null): SqlStatement {
+  return sql(
+    `INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+     WHERE kv_store.value IS NOT excluded.value`,
+    key,
+    value,
+    Date.now(),
+  );
 }
 
 // ---- AppState (seasons + anime entries + activeSeasonId) -----------------
@@ -381,41 +84,64 @@ interface AnimeRow {
   format: string | null;
 }
 
-function readAppState(): AppState | null {
-  const seasonsRows = db
-    .prepare('SELECT * FROM seasons ORDER BY created_at ASC')
-    .all() as SeasonRow[];
+const SEASONS: TableSpec = {
+  table: 'seasons',
+  cols: ['id', 'name', 'created_at'],
+  key: ['id'],
+};
+const ANIME_ENTRIES: TableSpec = {
+  table: 'anime_entries',
+  cols: [
+    'id', 'season_id', 'anilist_id', 'title', 'title_english', 'image_url', 'day', 'time',
+    'platform', 'platform_url', 'status', 'added_at', 'watch_status', 'episodes_watched',
+    'total_episodes', 'next_airing_episode', 'next_airing_at', 'format', 'position',
+  ],
+  key: ['id'],
+};
+// The progress columns the schedule owns. user_score belongs to the
+// collection and is left as it is.
+const SCHEDULE_PROGRESS: TableSpec = {
+  table: 'anime_progress',
+  cols: [
+    'anilist_id', 'watch_status', 'episodes_watched', 'total_episodes',
+    'next_airing_episode', 'next_airing_at', 'updated_at',
+  ],
+  key: ['anilist_id'],
+  touch: ['updated_at'],
+};
+
+async function readAppState(db: SqlDb): Promise<AppState | null> {
+  const seasonsRows = await db.all<SeasonRow>('SELECT * FROM seasons ORDER BY created_at ASC');
+  if (seasonsRows.length === 0) return null;
   // LEFT JOIN with anime_progress so shows that span multiple seasons read
   // the same watch progress. COALESCE: progress table wins when present;
   // anime_entries columns are the fallback for unbound entries (anilist_id 0,
   // typically xlsx imports that didn't match on AniList).
-  const animesRows = db
-    .prepare(
-      `SELECT
-         ae.id,
-         ae.season_id,
-         ae.anilist_id,
-         ae.title,
-         ae.title_english,
-         ae.image_url,
-         ae.day,
-         ae.time,
-         ae.platform,
-         ae.platform_url,
-         ae.status,
-         ae.added_at,
-         ae.format,
-         COALESCE(ap.watch_status,        ae.watch_status)        AS watch_status,
-         COALESCE(ap.episodes_watched,    ae.episodes_watched)    AS episodes_watched,
-         COALESCE(ap.total_episodes,      ae.total_episodes)      AS total_episodes,
-         COALESCE(ap.next_airing_episode, ae.next_airing_episode) AS next_airing_episode,
-         COALESCE(ap.next_airing_at,      ae.next_airing_at)      AS next_airing_at
-       FROM anime_entries ae
-       LEFT JOIN anime_progress ap
-         ON ae.anilist_id > 0 AND ap.anilist_id = ae.anilist_id`,
-    )
-    .all() as AnimeRow[];
-  if (seasonsRows.length === 0) return null;
+  const animesRows = await db.all<AnimeRow>(
+    `SELECT
+       ae.id,
+       ae.season_id,
+       ae.anilist_id,
+       ae.title,
+       ae.title_english,
+       ae.image_url,
+       ae.day,
+       ae.time,
+       ae.platform,
+       ae.platform_url,
+       ae.status,
+       ae.added_at,
+       ae.format,
+       COALESCE(ap.watch_status,        ae.watch_status)        AS watch_status,
+       COALESCE(ap.episodes_watched,    ae.episodes_watched)    AS episodes_watched,
+       COALESCE(ap.total_episodes,      ae.total_episodes)      AS total_episodes,
+       COALESCE(ap.next_airing_episode, ae.next_airing_episode) AS next_airing_episode,
+       COALESCE(ap.next_airing_at,      ae.next_airing_at)      AS next_airing_at
+     FROM anime_entries ae
+     LEFT JOIN anime_progress ap
+       ON ae.anilist_id > 0 AND ap.anilist_id = ae.anilist_id
+     ORDER BY ae.position, ae.rowid`,
+  );
 
   const grouped = new Map<string, AnimeEntry[]>();
   for (const r of animesRows) {
@@ -448,25 +174,16 @@ function readAppState(): AppState | null {
     animes: grouped.get(r.id) ?? [],
   }));
 
-  const activeRow = db
-    .prepare('SELECT value FROM kv_store WHERE key = ?')
-    .get('activeSeasonId') as { value: string | null } | undefined;
+  const activeRow = await db.first<{ value: string | null }>(
+    'SELECT value FROM kv_store WHERE key = ?',
+    'activeSeasonId',
+  );
   const activeSeasonId = activeRow?.value || null;
 
   return { seasons, activeSeasonId };
 }
 
-const writeAppStateTxn = db.transaction((state: AppState) => {
-  db.prepare('DELETE FROM anime_entries').run();
-  db.prepare('DELETE FROM seasons').run();
-  const insSeason = db.prepare(
-    'INSERT INTO seasons (id, name, created_at) VALUES (?, ?, ?)',
-  );
-  const insAnime = db.prepare(`
-    INSERT INTO anime_entries
-      (id, season_id, anilist_id, title, title_english, image_url, day, time, platform, platform_url, status, added_at, watch_status, episodes_watched, total_episodes, next_airing_episode, next_airing_at, format)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+async function writeAppState(db: SqlDb, state: AppState): Promise<number> {
   // For each anilist_id > 0, collect the "best" progress across all
   // entries — defends against drift where one card got updated and its
   // siblings still have stale values in state. Highest episodes_watched
@@ -481,15 +198,17 @@ const writeAppStateTxn = db.transaction((state: AppState) => {
       if (!existing || cur > prev) progressByAnilistId.set(a.anilistId, a);
     }
   }
+  const seasons: SqlValue[][] = [];
+  const animes: SqlValue[][] = [];
   for (const s of state.seasons) {
-    insSeason.run(s.id, s.name, s.createdAt);
-    for (const a of s.animes) {
+    seasons.push([s.id, s.name, s.createdAt]);
+    s.animes.forEach((a, position) => {
       // For bound entries (anilist_id > 0) the watch fields are owned by
       // anime_progress, so we null them here to keep the source-of-truth
       // singular. For unbound entries (anilist_id = 0) the columns ARE
       // the source of truth — anime_progress has nothing to JOIN against.
       const bound = (a.anilistId ?? 0) > 0;
-      insAnime.run(
+      animes.push([
         a.id,
         s.id,
         a.anilistId ?? 0,
@@ -508,45 +227,34 @@ const writeAppStateTxn = db.transaction((state: AppState) => {
         bound ? null : (a.nextAiringEpisode ?? null),
         bound ? null : (a.nextAiringAt ?? null),
         a.format ?? null,
-      );
-    }
+        position,
+      ]);
+    });
   }
-  // Upsert one progress row per unique anilist_id. We don't DELETE the
-  // table first — orphaned rows (shows no longer in any season) are
-  // harmless and re-adding the show later restores the user's progress.
-  const upsertProgress = db.prepare(
-    `INSERT INTO anime_progress
-       (anilist_id, watch_status, episodes_watched, total_episodes,
-        next_airing_episode, next_airing_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(anilist_id) DO UPDATE SET
-       watch_status        = excluded.watch_status,
-       episodes_watched    = excluded.episodes_watched,
-       total_episodes      = excluded.total_episodes,
-       next_airing_episode = excluded.next_airing_episode,
-       next_airing_at      = excluded.next_airing_at,
-       updated_at          = excluded.updated_at`,
-  );
+  // One progress row per unique anilist_id. Never deleted — orphaned rows
+  // (shows no longer in any season) are harmless and re-adding the show
+  // later restores the user's progress.
   const now = Date.now();
-  for (const [anilistId, a] of progressByAnilistId) {
-    upsertProgress.run(
-      anilistId,
-      a.watchStatus ?? null,
-      a.episodesWatched ?? null,
-      a.totalEpisodes ?? null,
-      a.nextAiringEpisode ?? null,
-      a.nextAiringAt ?? null,
-      now,
-    );
-  }
-  db.prepare(
-    `INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-  ).run('activeSeasonId', state.activeSeasonId ?? null, Date.now());
-});
-
-function writeAppState(state: AppState): void {
-  writeAppStateTxn(state);
+  const progress: SqlValue[][] = [...progressByAnilistId].map(([anilistId, a]) => [
+    anilistId,
+    a.watchStatus ?? null,
+    a.episodesWatched ?? null,
+    a.totalEpisodes ?? null,
+    a.nextAiringEpisode ?? null,
+    a.nextAiringAt ?? null,
+    now,
+  ]);
+  // Order matters for the season foreign key: seasons exist before entries
+  // point at them, and entries leave a season (deleted or moved) before the
+  // season itself is deleted.
+  return db.batch([
+    ...upsertRows(SEASONS, seasons),
+    deleteRowsNotIn(ANIME_ENTRIES, animes),
+    ...upsertRows(ANIME_ENTRIES, animes),
+    deleteRowsNotIn(SEASONS, seasons),
+    ...upsertRows(SCHEDULE_PROGRESS, progress),
+    kvStatement('activeSeasonId', state.activeSeasonId ?? null),
+  ]);
 }
 
 // ---- Collection -----------------------------------------------------------
@@ -573,6 +281,24 @@ interface CollectionRow {
   user_score: number | null;
 }
 
+const COLLECTION: TableSpec = {
+  table: 'collection',
+  cols: [
+    'anilist_id', 'section', 'title', 'title_english', 'image_url', 'description', 'tags_json',
+    'format', 'episodes', 'average_score', 'start_year', 'start_month', 'start_day', 'added_at',
+    'tags_full', 'position',
+  ],
+  key: ['anilist_id', 'section'],
+};
+// The progress columns the collection owns. total_episodes / next_airing_*
+// belong to the schedule and are left as they are.
+const COLLECTION_PROGRESS: TableSpec = {
+  table: 'anime_progress',
+  cols: ['anilist_id', 'watch_status', 'episodes_watched', 'user_score', 'updated_at'],
+  key: ['anilist_id'],
+  touch: ['updated_at'],
+};
+
 function rowToCollectionEntry(r: CollectionRow): CollectionEntry {
   const startDate =
     r.start_year != null || r.start_month != null || r.start_day != null
@@ -598,138 +324,146 @@ function rowToCollectionEntry(r: CollectionRow): CollectionEntry {
   };
 }
 
-function readCollection(): CollectionEntry[] {
+async function readCollection(db: SqlDb): Promise<CollectionEntry[]> {
   // LEFT JOIN with anime_progress so watch status / episodes / user_score
   // ride along on each collection entry. Unbound collection rows
   // (anilist_id = 0) get NULLs since the JOIN can't match.
-  const rows = db
-    .prepare(
-      `SELECT
-         c.*,
-         ap.watch_status,
-         ap.episodes_watched,
-         ap.user_score
-       FROM collection c
-       LEFT JOIN anime_progress ap
-         ON c.anilist_id > 0 AND ap.anilist_id = c.anilist_id`,
-    )
-    .all() as CollectionRow[];
+  const rows = await db.all<CollectionRow>(
+    `SELECT
+       c.*,
+       ap.watch_status,
+       ap.episodes_watched,
+       ap.user_score
+     FROM collection c
+     LEFT JOIN anime_progress ap
+       ON c.anilist_id > 0 AND ap.anilist_id = c.anilist_id
+     ORDER BY c.position, c.rowid`,
+  );
   return rows.map(rowToCollectionEntry);
 }
 
-const writeCollectionTxn = db.transaction((items: CollectionEntry[]) => {
-  db.prepare('DELETE FROM collection').run();
-  const ins = db.prepare(`
-    INSERT INTO collection
-      (anilist_id, section, title, title_english, image_url, description,
-       tags_json, format, episodes, average_score, start_year, start_month, start_day, added_at, tags_full)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  for (const e of items) {
-    ins.run(
-      e.anilistId,
-      e.section,
-      e.title,
-      e.titleEnglish ?? null,
-      e.imageUrl ?? null,
-      e.description ?? null,
-      JSON.stringify(e.tags ?? []),
-      e.format ?? null,
-      e.episodes ?? null,
-      e.averageScore ?? null,
-      e.startDate?.year ?? null,
-      e.startDate?.month ?? null,
-      e.startDate?.day ?? null,
-      e.addedAt,
-      e.tagsFull ? 1 : 0,
-    );
-  }
+async function writeCollection(db: SqlDb, items: CollectionEntry[]): Promise<number> {
+  const rows: SqlValue[][] = items.map((e, position) => [
+    e.anilistId,
+    e.section,
+    e.title,
+    e.titleEnglish ?? null,
+    e.imageUrl ?? null,
+    e.description ?? null,
+    JSON.stringify(e.tags ?? []),
+    e.format ?? null,
+    e.episodes ?? null,
+    e.averageScore ?? null,
+    e.startDate?.year ?? null,
+    e.startDate?.month ?? null,
+    e.startDate?.day ?? null,
+    e.addedAt,
+    e.tagsFull ? 1 : 0,
+    position,
+  ]);
   // Persist watch_status / episodes_watched / user_score into anime_progress
-  // so collection-card edits survive a reload. ON CONFLICT only touches the
-  // three columns owned by the collection — total_episodes / next_airing_*
-  // belong to writeAppState and stay untouched here. The same anilist_id can
+  // so collection-card edits survive a reload. The same anilist_id can
   // appear twice (Favorites + Interested); broadcast keeps them identical,
   // so we dedupe to avoid two redundant upserts.
-  const upsertProgress = db.prepare(
-    `INSERT INTO anime_progress
-       (anilist_id, watch_status, episodes_watched, user_score, updated_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(anilist_id) DO UPDATE SET
-       watch_status     = excluded.watch_status,
-       episodes_watched = excluded.episodes_watched,
-       user_score       = excluded.user_score,
-       updated_at       = excluded.updated_at`,
-  );
   const now = Date.now();
   const seen = new Set<number>();
+  const progress: SqlValue[][] = [];
   for (const e of items) {
     if (!e.anilistId || e.anilistId <= 0 || seen.has(e.anilistId)) continue;
     seen.add(e.anilistId);
-    upsertProgress.run(
-      e.anilistId,
-      e.watchStatus ?? null,
-      e.episodesWatched ?? null,
-      e.userScore ?? null,
-      now,
-    );
+    progress.push([e.anilistId, e.watchStatus ?? null, e.episodesWatched ?? null, e.userScore ?? null, now]);
   }
-});
-
-function writeCollection(items: CollectionEntry[]): void {
-  writeCollectionTxn(items);
+  return db.batch([
+    deleteRowsNotIn(COLLECTION, rows),
+    ...upsertRows(COLLECTION, rows),
+    ...upsertRows(COLLECTION_PROGRESS, progress),
+  ]);
 }
 
 // ---- Stream links ---------------------------------------------------------
 
+const STREAM_LINKS: TableSpec = {
+  table: 'stream_links',
+  cols: ['anilist_id', 'position', 'site', 'url', 'created_at'],
+  key: ['anilist_id', 'position'],
+  insertOnly: ['created_at'],
+};
+
 /** { [anilistId]: StreamLink[] } in the user's order. */
-function readStreamLinks(): StreamLinksMap {
-  const rows = db
-    .prepare('SELECT anilist_id, site, url FROM stream_links ORDER BY anilist_id, position')
-    .all() as { anilist_id: number; site: string; url: string }[];
+async function readStreamLinks(db: SqlDb): Promise<StreamLinksMap> {
+  const rows = await db.all<{ anilist_id: number; site: string; url: string }>(
+    'SELECT anilist_id, site, url FROM stream_links ORDER BY anilist_id, position',
+  );
   const out: StreamLinksMap = {};
   for (const r of rows) (out[r.anilist_id] ??= []).push({ site: r.site, url: r.url });
   return out;
 }
 
-const writeStreamLinksTxn = db.transaction((map: StreamLinksMap) => {
-  // Keep each link's original created_at across rewrites.
-  const created = new Map<string, number>();
-  for (const r of db.prepare('SELECT anilist_id, url, created_at FROM stream_links').all() as {
-    anilist_id: number;
-    url: string;
-    created_at: number;
-  }[]) {
-    created.set(`${r.anilist_id} ${r.url}`, r.created_at);
-  }
-  db.prepare('DELETE FROM stream_links').run();
-  const ins = db.prepare(
-    `INSERT OR IGNORE INTO stream_links (anilist_id, position, site, url, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-  );
-  const now = Date.now();
+async function writeStreamLinks(db: SqlDb, map: StreamLinksMap): Promise<number> {
+  // The incoming map as the table stores it: per show, links in order,
+  // blank URLs dropped, one link per URL (the first one wins).
+  const wanted = new Map<number, StreamLink[]>();
   for (const [key, links] of Object.entries(map ?? {})) {
     const anilistId = Number(key);
     if (!Number.isInteger(anilistId) || anilistId <= 0 || !Array.isArray(links)) continue;
-    let position = 0;
+    const list: StreamLink[] = [];
     for (const l of links as StreamLink[]) {
       const url = typeof l?.url === 'string' ? l.url.trim() : '';
-      if (!url) continue;
-      const site = (typeof l.site === 'string' && l.site.trim()) || hostOf(url);
-      if (ins.run(anilistId, position, site, url, created.get(`${anilistId} ${url}`) ?? now).changes) position++;
+      if (!url || list.some((x) => x.url === url)) continue;
+      list.push({ site: (typeof l.site === 'string' && l.site.trim()) || hostOf(url), url });
     }
+    if (list.length) wanted.set(anilistId, list);
   }
-});
 
-function writeStreamLinks(map: StreamLinksMap): void {
-  writeStreamLinksTxn(map);
+  const stored = new Map<number, { site: string; url: string }[]>();
+  // Keep each link's original created_at when its show is rewritten.
+  const created = new Map<string, number>();
+  for (const r of await db.all<{ anilist_id: number; site: string; url: string; created_at: number }>(
+    'SELECT anilist_id, site, url, created_at FROM stream_links ORDER BY anilist_id, position',
+  )) {
+    const list = stored.get(r.anilist_id) ?? [];
+    list.push(r);
+    stored.set(r.anilist_id, list);
+    created.set(`${r.anilist_id} ${r.url}`, r.created_at);
+  }
+
+  // A show whose list changed in any way is rewritten as a whole: moving a
+  // link shifts the positions of the others, and rewriting row by row would
+  // trip the one-row-per-URL constraint halfway through.
+  const changed = [...new Set([...stored.keys(), ...wanted.keys()])].filter((id) => {
+    const a = stored.get(id) ?? [];
+    const b = wanted.get(id) ?? [];
+    return a.length !== b.length || a.some((l, i) => l.site !== b[i].site || l.url !== b[i].url);
+  });
+  if (changed.length === 0) return 0;
+  const now = Date.now();
+  const rows: SqlValue[][] = changed.flatMap((id) =>
+    (wanted.get(id) ?? []).map((l, position) => [
+      id,
+      position,
+      l.site,
+      l.url,
+      created.get(`${id} ${l.url}`) ?? now,
+    ]),
+  );
+  return db.batch([
+    sql('DELETE FROM stream_links WHERE anilist_id IN (SELECT value FROM json_each(?))', JSON.stringify(changed)),
+    ...upsertRows(STREAM_LINKS, rows),
+  ]);
 }
 
 // ---- AniList link cache -----------------------------------------------------
 
-function readAnilistLinks(): AnilistLinksCache {
-  const rows = db
-    .prepare('SELECT anilist_id, fetched_at, links_json FROM anilist_link_cache')
-    .all() as { anilist_id: number; fetched_at: number; links_json: string }[];
+const ANILIST_LINKS: TableSpec = {
+  table: 'anilist_link_cache',
+  cols: ['anilist_id', 'fetched_at', 'links_json'],
+  key: ['anilist_id'],
+};
+
+async function readAnilistLinks(db: SqlDb): Promise<AnilistLinksCache> {
+  const rows = await db.all<{ anilist_id: number; fetched_at: number; links_json: string }>(
+    'SELECT anilist_id, fetched_at, links_json FROM anilist_link_cache',
+  );
   const out: AnilistLinksCache = {};
   for (const r of rows) {
     try {
@@ -741,23 +475,17 @@ function readAnilistLinks(): AnilistLinksCache {
   return out;
 }
 
-const writeAnilistLinksTxn = db.transaction((map: AnilistLinksCache) => {
-  db.prepare('DELETE FROM anilist_link_cache').run();
-  const ins = db.prepare(
-    'INSERT INTO anilist_link_cache (anilist_id, fetched_at, links_json) VALUES (?, ?, ?)',
-  );
+async function writeAnilistLinks(db: SqlDb, map: AnilistLinksCache): Promise<number> {
+  const rows: SqlValue[][] = [];
   for (const [key, v] of Object.entries(map ?? {})) {
     const id = Number(key);
     if (!Number.isInteger(id) || id <= 0 || !v || !Array.isArray(v.links)) continue;
     const links = v.links
       .filter((l) => l && typeof l.url === 'string' && typeof l.site === 'string')
       .map((l) => ({ site: l.site, url: l.url, icon: l.icon, color: l.color, fromAnilist: true }));
-    ins.run(id, Number(v.at) || Date.now(), JSON.stringify(links));
+    rows.push([id, Number(v.at) || Date.now(), JSON.stringify(links)]);
   }
-});
-
-function writeAnilistLinks(map: AnilistLinksCache): void {
-  writeAnilistLinksTxn(map);
+  return db.batch([deleteRowsNotIn(ANILIST_LINKS, rows), ...upsertRows(ANILIST_LINKS, rows)]);
 }
 
 // ---- Discover cache -------------------------------------------------------
@@ -771,10 +499,8 @@ interface DiscoverRow {
   items_json: string;
 }
 
-function readDiscoverCache(): DiscoverCache {
-  const rows = db
-    .prepare('SELECT * FROM discover_cache ORDER BY fetched_at DESC')
-    .all() as DiscoverRow[];
+async function readDiscoverCache(db: SqlDb): Promise<DiscoverCache> {
+  const rows = await db.all<DiscoverRow>('SELECT * FROM discover_cache ORDER BY fetched_at DESC');
   const entries: DiscoverCacheEntry[] = rows.map((r) => ({
     // 'ALL' is the sentinel for "no season filter (full year)". The column
     // is NOT NULL so we can't store SQL null without a table rebuild.
@@ -787,33 +513,50 @@ function readDiscoverCache(): DiscoverCache {
   return { entries };
 }
 
-const writeDiscoverTxn = db.transaction((cache: DiscoverCache) => {
-  db.prepare('DELETE FROM discover_cache').run();
-  const ins = db.prepare(`
-    INSERT INTO discover_cache (season, year, tags_json, fetched_at, items_json)
-    VALUES (?, ?, ?, ?, ?)
-  `);
+async function writeDiscoverCache(db: SqlDb, cache: DiscoverCache): Promise<number> {
+  // Entries are replaced, never edited: each incoming entry is either stored
+  // exactly as it is already, or new. Rows no entry claimed are dropped.
+  const unclaimed = new Map((await db.all<DiscoverRow>('SELECT * FROM discover_cache')).map((r) => [r.id, r]));
+  const inserts: SqlStatement[] = [];
   for (const e of cache.entries) {
-    ins.run(
-      e.season ?? 'ALL',
-      e.year,
-      JSON.stringify(e.tags),
-      e.fetchedAt,
-      JSON.stringify(e.items),
+    const season = e.season ?? 'ALL';
+    const tags = JSON.stringify(e.tags);
+    const items = JSON.stringify(e.items);
+    const match = [...unclaimed.values()].find(
+      (r) =>
+        r.season === season &&
+        r.year === e.year &&
+        r.tags_json === tags &&
+        r.fetched_at === e.fetchedAt &&
+        r.items_json === items,
+    );
+    if (match) {
+      unclaimed.delete(match.id);
+      continue;
+    }
+    inserts.push(
+      sql(
+        `INSERT INTO discover_cache (season, year, tags_json, fetched_at, items_json)
+         VALUES (?, ?, ?, ?, ?)`,
+        season,
+        e.year,
+        tags,
+        e.fetchedAt,
+        items,
+      ),
     );
   }
-});
-
-function writeDiscoverCache(cache: DiscoverCache): void {
-  writeDiscoverTxn(cache);
+  if (unclaimed.size === 0 && inserts.length === 0) return 0;
+  return db.batch([
+    sql('DELETE FROM discover_cache WHERE id IN (SELECT value FROM json_each(?))', JSON.stringify([...unclaimed.keys()])),
+    ...inserts,
+  ]);
 }
 
 // ---- Simple key-value pairs (tags cache, h prefs) -------------------
 
-function readKv(key: string): unknown | null {
-  const row = db
-    .prepare('SELECT value FROM kv_store WHERE key = ?')
-    .get(key) as { value: string | null } | undefined;
+async function readKv(db: SqlDb, key: string): Promise<unknown | null> {
+  const row = await db.first<{ value: string | null }>('SELECT value FROM kv_store WHERE key = ?', key);
   if (!row || row.value == null) return null;
   try {
     return JSON.parse(row.value);
@@ -822,11 +565,8 @@ function readKv(key: string): unknown | null {
   }
 }
 
-function writeKv(key: string, value: unknown): void {
-  db.prepare(
-    `INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-  ).run(key, JSON.stringify(value), Date.now());
+async function writeKv(db: SqlDb, key: string, value: unknown): Promise<number> {
+  return db.batch([kvStatement(key, JSON.stringify(value))]);
 }
 
 // ---- H favorites -----------------------------------------------------
@@ -847,10 +587,17 @@ interface HFavoriteRow {
   added_at: number;
 }
 
-function readHFavorites(): HFavoriteEntry[] {
-  const rows = db
-    .prepare('SELECT * FROM h_favorites ORDER BY added_at DESC')
-    .all() as HFavoriteRow[];
+const H_FAVORITES: TableSpec = {
+  table: 'h_favorites',
+  cols: [
+    'anilist_id', 'title', 'title_english', 'image_url', 'description', 'tags_json', 'format',
+    'episodes', 'average_score', 'start_year', 'start_month', 'start_day', 'added_at',
+  ],
+  key: ['anilist_id'],
+};
+
+async function readHFavorites(db: SqlDb): Promise<HFavoriteEntry[]> {
+  const rows = await db.all<HFavoriteRow>('SELECT * FROM h_favorites ORDER BY added_at DESC');
   return rows.map((r) => {
     const startDate =
       r.start_year != null || r.start_month != null || r.start_day != null
@@ -872,50 +619,26 @@ function readHFavorites(): HFavoriteEntry[] {
   });
 }
 
-const writeHFavoritesTxn = db.transaction((items: HFavoriteEntry[]) => {
-  db.prepare('DELETE FROM h_favorites').run();
-  const ins = db.prepare(`
-    INSERT INTO h_favorites
-      (anilist_id, title, title_english, image_url, description, tags_json,
-       format, episodes, average_score, start_year, start_month, start_day, added_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  for (const e of items) {
-    ins.run(
-      e.anilistId,
-      e.title,
-      e.titleEnglish ?? null,
-      e.imageUrl ?? null,
-      e.description ?? null,
-      JSON.stringify(e.tags ?? []),
-      e.format ?? null,
-      e.episodes ?? null,
-      e.averageScore ?? null,
-      e.startDate?.year ?? null,
-      e.startDate?.month ?? null,
-      e.startDate?.day ?? null,
-      e.addedAt,
-    );
-  }
-});
-
-function writeHFavorites(items: HFavoriteEntry[]): void {
-  writeHFavoritesTxn(items);
+async function writeHFavorites(db: SqlDb, items: HFavoriteEntry[]): Promise<number> {
+  const rows: SqlValue[][] = items.map((e) => [
+    e.anilistId,
+    e.title,
+    e.titleEnglish ?? null,
+    e.imageUrl ?? null,
+    e.description ?? null,
+    JSON.stringify(e.tags ?? []),
+    e.format ?? null,
+    e.episodes ?? null,
+    e.averageScore ?? null,
+    e.startDate?.year ?? null,
+    e.startDate?.month ?? null,
+    e.startDate?.day ?? null,
+    e.addedAt,
+  ]);
+  return db.batch([deleteRowsNotIn(H_FAVORITES, rows), ...upsertRows(H_FAVORITES, rows)]);
 }
 
 // ---- Public router for the API route --------------------------------------
-
-// ---- Backup helper -------------------------------------------------------
-//
-// Returns a point-in-time snapshot of the SQLite DB as a Buffer, suitable
-// for streaming to the user as a download. The WAL checkpoint forces any
-// in-flight writes into the main .db file before we read it, so the buffer
-// is self-contained — no .db-wal/.db-shm sidecars needed to restore from it.
-
-export function readDbSnapshot(): { path: string; buffer: Buffer } {
-  db.pragma('wal_checkpoint(TRUNCATE)');
-  return { path: DB_PATH, buffer: readFileSync(DB_PATH) };
-}
 
 export type DbKey =
   | 'state'
@@ -928,86 +651,49 @@ export type DbKey =
   | 'anilist-links'
   | 'link-sources';
 
-export function readByKey(key: DbKey): unknown {
+export async function readByKey(db: SqlDb, key: DbKey): Promise<unknown> {
   switch (key) {
     case 'state':
-      return readAppState();
+      return readAppState(db);
     case 'collection':
-      return readCollection();
+      return readCollection(db);
     case 'discover-cache':
-      return readDiscoverCache();
+      return readDiscoverCache(db);
     case 'tags':
-      return readKv('tags') as AnilistTag[] | null;
+      return (await readKv(db, 'tags')) as AnilistTag[] | null;
     case 'h-prefs':
-      return readKv('h-prefs') as HPrefs | null;
+      return (await readKv(db, 'h-prefs')) as HPrefs | null;
     case 'h-favorites':
-      return readHFavorites();
+      return readHFavorites(db);
     case 'stream-links':
-      return readStreamLinks();
+      return readStreamLinks(db);
     case 'anilist-links':
-      return readAnilistLinks();
+      return readAnilistLinks(db);
     case 'link-sources':
-      return readKv('link-sources');
+      return readKv(db, 'link-sources');
   }
 }
 
-export function writeByKey(key: DbKey, value: unknown): void {
+/** Resolves to the number of rows the write changed. */
+export async function writeByKey(db: SqlDb, key: DbKey, value: unknown): Promise<number> {
   switch (key) {
     case 'state':
-      writeAppState(value as AppState);
-      return;
+      return writeAppState(db, value as AppState);
     case 'collection':
-      writeCollection(value as CollectionEntry[]);
-      return;
+      return writeCollection(db, value as CollectionEntry[]);
     case 'discover-cache':
-      writeDiscoverCache(value as DiscoverCache);
-      return;
+      return writeDiscoverCache(db, value as DiscoverCache);
     case 'tags':
-      writeKv('tags', value);
-      return;
+      return writeKv(db, 'tags', value);
     case 'h-prefs':
-      writeKv('h-prefs', value);
-      return;
+      return writeKv(db, 'h-prefs', value);
     case 'h-favorites':
-      writeHFavorites(value as HFavoriteEntry[]);
-      return;
+      return writeHFavorites(db, value as HFavoriteEntry[]);
     case 'stream-links':
-      writeStreamLinks(value as StreamLinksMap);
-      return;
+      return writeStreamLinks(db, value as StreamLinksMap);
     case 'anilist-links':
-      writeAnilistLinks(value as AnilistLinksCache);
-      return;
+      return writeAnilistLinks(db, value as AnilistLinksCache);
     case 'link-sources':
-      writeKv('link-sources', value);
-      return;
-  }
-}
-
-// ---- One-time migration from JSON files (if present) ---------------------
-const LEGACY_JSON: Record<string, DbKey> = {
-  'state.json': 'state',
-  'collection.json': 'collection',
-  'discover-cache.json': 'discover-cache',
-  'tags.json': 'tags',
-  'hentai-prefs.json': 'h-prefs',
-};
-
-// Idempotent: successfully-ingested files are renamed to .imported, so a
-// second pass on the same dataset is a no-op.
-for (const [file, key] of Object.entries(LEGACY_JSON)) {
-  const path = join(DATA_DIR, file);
-  if (!existsSync(path)) continue;
-  try {
-    const text = readFileSync(path, 'utf-8');
-    if (!text || text === 'null') {
-      renameSync(path, path + '.imported');
-      continue;
-    }
-    const data = JSON.parse(text);
-    writeByKey(key, data);
-    renameSync(path, path + '.imported');
-    console.info(`[db] Imported legacy ${file} into anime-tracker.db`);
-  } catch (err) {
-    console.warn(`[db] Failed to migrate ${file}:`, err);
+      return writeKv(db, 'link-sources', value);
   }
 }

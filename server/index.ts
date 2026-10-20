@@ -16,9 +16,13 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import JSZip from 'jszip';
-import { readByKey, writeByKey, readDbSnapshot, type DbKey } from './db';
+import { readByKey, writeByKey, type DbKey } from './db';
+import { importLegacyJson, openSqlite } from './sqlite';
 
 const PORT = Number(process.env.PORT) || 3001;
+const DATA_DIR = join(process.cwd(), 'data');
+const local = openSqlite(join(DATA_DIR, 'anime-tracker.db'));
+const db = local.db;
 const ALLOWED: ReadonlySet<DbKey> = new Set<DbKey>([
   'state',
   'collection',
@@ -41,11 +45,11 @@ const app = new Hono();
 
 // ---- /api/storage/:key ---------------------------------------------------
 
-app.get('/api/storage/:key', (c) => {
+app.get('/api/storage/:key', async (c) => {
   const key = c.req.param('key');
   if (!isAllowed(key)) return c.text('Not allowed', 400);
   try {
-    const value = readByKey(key);
+    const value = await readByKey(db, key);
     return c.json(value ?? null);
   } catch (err) {
     console.error(`[api/storage] read ${key} failed`, err);
@@ -69,7 +73,7 @@ async function handleWrite(c: Context) {
     return c.text('Invalid JSON', 400);
   }
   try {
-    writeByKey(key, value);
+    await writeByKey(db, key, value);
     return c.text('OK');
   } catch (err) {
     console.error(`[api/storage] write ${key} failed`, err);
@@ -83,7 +87,7 @@ app.post('/api/storage/:key', handleWrite); // sendBeacon on page unload
 
 app.get('/api/db-zip', async (c) => {
   try {
-    const { buffer } = readDbSnapshot();
+    const buffer = local.snapshot();
     const zip = new JSZip();
     // Nested under data/ so extraction matches the project layout — the
     // user can drop the whole data/ folder back at the root to restore.
@@ -133,9 +137,12 @@ if (existsSync(distDir)) {
   });
 }
 
-serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.log(`[api] listening on http://localhost:${info.port}`);
-  if (existsSync(distDir)) {
-    console.log(`[api] serving static dist/ from same port`);
-  }
+// Pull in JSON files left by very old versions before taking requests.
+importLegacyJson(DATA_DIR, (key, value) => writeByKey(db, key, value)).finally(() => {
+  serve({ fetch: app.fetch, port: PORT }, (info) => {
+    console.log(`[api] listening on http://localhost:${info.port}`);
+    if (existsSync(distDir)) {
+      console.log(`[api] serving static dist/ from same port`);
+    }
+  });
 });
