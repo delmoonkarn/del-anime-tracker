@@ -1,87 +1,30 @@
-// Hono server.
+// Node starter: the shared API (server/app.ts) on local SQLite.
 //
 // Dev: runs on :3001, Vite proxies /api/* here from :5173.
-// Prod (`npm run build` then `npm start`): also serves the built static
-// frontend from dist/, so a single Node process delivers both.
+// Prod (`npm run build` then `npm start`, or ATracker.exe): also serves the
+// built static frontend from dist/, so a single Node process delivers both.
 //
-// Endpoints:
-//   GET  /api/storage/:key   → readByKey
-//   PUT  /api/storage/:key   → writeByKey
-//   POST /api/storage/:key   → writeByKey (mirrors PUT; used by sendBeacon)
+// Endpoints added here on top of server/app.ts:
 //   GET  /api/db-zip         → streams the SQLite DB inside a date-stamped zip
 
-import { Hono, type Context } from 'hono';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import JSZip from 'jszip';
-import { readByKey, writeByKey, type DbKey } from './db';
+import { createApp } from './app';
+import { writeByKey } from './db';
 import { importLegacyJson, openSqlite } from './sqlite';
 
 const PORT = Number(process.env.PORT) || 3001;
 const DATA_DIR = join(process.cwd(), 'data');
 const local = openSqlite(join(DATA_DIR, 'anime-tracker.db'));
 const db = local.db;
-const ALLOWED: ReadonlySet<DbKey> = new Set<DbKey>([
-  'state',
-  'collection',
-  'discover-cache',
-  'tags',
-  'h-prefs',
-  'h-favorites',
-  'stream-links',
-  'anilist-links',
-  'link-sources',
-]);
-function isAllowed(key: string): key is DbKey {
-  return ALLOWED.has(key as DbKey);
-}
 function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-const app = new Hono();
-
-// ---- /api/storage/:key ---------------------------------------------------
-
-app.get('/api/storage/:key', async (c) => {
-  const key = c.req.param('key');
-  if (!isAllowed(key)) return c.text('Not allowed', 400);
-  try {
-    const value = await readByKey(db, key);
-    return c.json(value ?? null);
-  } catch (err) {
-    console.error(`[api/storage] read ${key} failed`, err);
-    return c.text('Read failed', 500);
-  }
-});
-
-async function handleWrite(c: Context) {
-  const key = c.req.param('key') ?? '';
-  if (!isAllowed(key)) return c.text('Not allowed', 400);
-  let raw: string;
-  try {
-    raw = await c.req.text();
-  } catch {
-    return c.text('Invalid body', 400);
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    return c.text('Invalid JSON', 400);
-  }
-  try {
-    await writeByKey(db, key, value);
-    return c.text('OK');
-  } catch (err) {
-    console.error(`[api/storage] write ${key} failed`, err);
-    return c.text('Write failed', 500);
-  }
-}
-app.put('/api/storage/:key', handleWrite);
-app.post('/api/storage/:key', handleWrite); // sendBeacon on page unload
+const app = createApp(() => db);
 
 // ---- /api/db-zip ---------------------------------------------------------
 

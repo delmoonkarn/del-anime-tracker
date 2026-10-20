@@ -1,0 +1,25 @@
+# Cloudflare Workers config for the cloud version (server/worker.ts + D1).
+# The local version (npm start / ATracker.exe) doesn't use this file.
+#
+#   npm run cf:db:local     create / upgrade the local D1 tables (migrations/)
+#   npm run cf:seed:local   copy data/anime-tracker.db into the local D1
+#   npm run cf:dev          build the frontend and run it all at http://localhost:8787
+
+name = "anime-tracker"
+main = "server/worker.ts"
+compatibility_date = "2026-10-01"
+
+# The built frontend. /api/* goes to the Worker first; any other path that
+# isn't a file in dist/ gets index.html (single-page app).
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "anime-tracker"
+# Placeholder until the real database is created in your Cloudflare account
+# (`wrangler d1 create anime-tracker` prints the id). Local dev works without it.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"

@@ -12,6 +12,10 @@ dist-server/
 # env / secrets
 .env*
 !.env.example
+.dev.vars*
+
+# Cloudflare local state (local D1 database, build cache)
+.wrangler/
 
 # editor / OS
 .DS_Store
