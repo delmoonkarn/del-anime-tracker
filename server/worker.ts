@@ -7,31 +7,20 @@
 // (see [assets] in wrangler.toml).
 //
 // Secrets (`wrangler secret put NAME`, or .dev.vars for wrangler dev):
-//   SETUP_CODE                                  unlocks first-run account setup
-//   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET     optional: Sign in with Google
-//   ANILIST_CLIENT_ID / ANILIST_CLIENT_SECRET   optional: Sign in with AniList
-//   RESEND_API_KEY / BACKUP_EMAIL_TO            optional: backup emails
-//   BACKUP_EMAIL_FROM                           optional: sender on your own Resend domain
+//   SETUP_CODE                        unlocks first-run account setup
+//   RESEND_API_KEY / BACKUP_EMAIL_TO  optional: backup emails
+//   BACKUP_EMAIL_FROM                 optional: sender on your own Resend domain
 
 import { createApp } from './app';
-import type { OAuthClient } from './auth';
 import { emailBackup, type EmailConfig } from './backup';
 import { d1Db, type D1Database } from './d1';
 
 interface Bindings {
   DB: D1Database;
   SETUP_CODE?: string;
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
-  ANILIST_CLIENT_ID?: string;
-  ANILIST_CLIENT_SECRET?: string;
   RESEND_API_KEY?: string;
   BACKUP_EMAIL_TO?: string;
   BACKUP_EMAIL_FROM?: string;
-}
-
-function client(id?: string, secret?: string): OAuthClient | undefined {
-  return id && secret ? { clientId: id, clientSecret: secret } : undefined;
 }
 
 function email(env: Bindings): EmailConfig | undefined {
@@ -45,8 +34,6 @@ const app = createApp<{ Bindings: Bindings }>(
   (c) => ({
     required: true,
     setupCode: c.env.SETUP_CODE,
-    google: client(c.env.GOOGLE_CLIENT_ID, c.env.GOOGLE_CLIENT_SECRET),
-    anilist: client(c.env.ANILIST_CLIENT_ID, c.env.ANILIST_CLIENT_SECRET),
     ip: c.req.header('cf-connecting-ip') ?? 'unknown',
   }),
   (c) => ({ email: email(c.env), monthly: true }),

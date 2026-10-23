@@ -5,8 +5,7 @@
 // built static frontend from dist/, so a single Node process delivers both.
 //
 // Sign-in is off: the local app is only reachable from your own PC. Running
-// this on a server instead? Set REQUIRE_LOGIN=1 plus the same SETUP_CODE /
-// GOOGLE_* / ANILIST_* variables the Workers starter reads.
+// this on a server instead? Set REQUIRE_LOGIN=1 and SETUP_CODE.
 //
 // "Email backup now" works here too with RESEND_API_KEY + BACKUP_EMAIL_TO
 // set; the monthly email is the cloud version's (Workers cron).
@@ -25,14 +24,11 @@ const DATA_DIR = join(process.cwd(), 'data');
 const db = openSqlite(join(DATA_DIR, 'anime-tracker.db')).db;
 
 const env = process.env;
-const client = (id?: string, secret?: string) => (id && secret ? { clientId: id, clientSecret: secret } : undefined);
 const app = createApp(
   () => db,
   (c) => ({
     required: env.REQUIRE_LOGIN === '1',
     setupCode: env.SETUP_CODE,
-    google: client(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET),
-    anilist: client(env.ANILIST_CLIENT_ID, env.ANILIST_CLIENT_SECRET),
     ip: getConnInfo(c).remote.address ?? 'unknown',
   }),
   () => ({

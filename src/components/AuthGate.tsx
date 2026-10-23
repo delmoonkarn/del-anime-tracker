@@ -1,22 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Loader2, X } from 'lucide-react';
-import { AuthContext, describeAuthResult, fetchAuth, SIGNED_OUT_EVENT, type AuthInfo } from '@/lib/auth';
+import { Loader2 } from 'lucide-react';
+import { AuthContext, fetchAuth, SIGNED_OUT_EVENT, type AuthInfo } from '@/lib/auth';
 import { BTN } from '@/lib/ui';
 import { SignInPage } from './SignInPage';
-
-// Google / AniList send you back with ?auth=... or ?auth_error=...; read it
-// once at load and tidy the address bar.
-function takeRedirectResult() {
-  const params = new URLSearchParams(window.location.search);
-  const result = describeAuthResult(params);
-  if (result) {
-    params.delete('auth');
-    params.delete('auth_error');
-    const query = params.toString();
-    window.history.replaceState(window.history.state, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
-  }
-  return result;
-}
 
 /**
  * Renders the app only once you're signed in (or when sign-in is off, as on
@@ -26,7 +12,6 @@ function takeRedirectResult() {
 export function AuthGate({ children }: { children: ReactNode }) {
   const [info, setInfo] = useState<AuthInfo | null>(null);
   const [failed, setFailed] = useState(false);
-  const [result, setResult] = useState(takeRedirectResult);
 
   const refresh = useCallback(async () => {
     try {
@@ -44,13 +29,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
     window.addEventListener(SIGNED_OUT_EVENT, onSignedOut);
     return () => window.removeEventListener(SIGNED_OUT_EVENT, onSignedOut);
   }, [refresh]);
-
-  // Notices (e.g. "Google is linked") clear themselves.
-  useEffect(() => {
-    if (!result?.notice) return;
-    const t = setTimeout(() => setResult(null), 6000);
-    return () => clearTimeout(t);
-  }, [result]);
 
   if (failed && !info) {
     return (
@@ -72,36 +50,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   }
   if (info.required && !info.signedIn) {
-    return (
-      <SignInPage
-        info={info}
-        initialError={result?.error}
-        onSignedIn={() => {
-          setResult(null);
-          void refresh();
-        }}
-      />
-    );
+    return <SignInPage info={info} onSignedIn={() => void refresh()} />;
   }
 
-  return (
-    <AuthContext.Provider value={{ info, refresh }}>
-      {children}
-      {result && (result.notice || result.error) && (
-        <div
-          role="status"
-          className={`fixed bottom-4 left-1/2 z-50 flex w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 items-start gap-3 rounded-xl border px-4 py-3 text-sm shadow-2xl motion-safe:animate-pop-in ${
-            result.error
-              ? 'border-rose-500/40 bg-zinc-900 text-rose-200'
-              : 'border-emerald-500/40 bg-zinc-900 text-emerald-200'
-          }`}
-        >
-          <span className="flex-1">{result.error ?? result.notice}</span>
-          <button type="button" onClick={() => setResult(null)} className="text-zinc-400 hover:text-zinc-100" aria-label="Dismiss">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ info, refresh }}>{children}</AuthContext.Provider>;
 }

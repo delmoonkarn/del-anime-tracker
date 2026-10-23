@@ -195,12 +195,8 @@ function migrate(db: Database.Database): void {
       password_hash TEXT,
       created_at INTEGER NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS auth_identity (
-      provider TEXT PRIMARY KEY,
-      subject TEXT NOT NULL,
-      label TEXT,
-      linked_at INTEGER NOT NULL
-    );
+    /* Linked Google / AniList accounts: a sign-in option that was dropped. */
+    DROP TABLE IF EXISTS auth_identity;
     CREATE TABLE IF NOT EXISTS auth_session (
       token_hash TEXT PRIMARY KEY,
       created_at INTEGER NOT NULL,

@@ -12,6 +12,8 @@
     "cf:db:local": "wrangler d1 migrations apply anime-tracker --local",
     "cf:seed:local": "tsx scripts/export-sql.ts .wrangler/seed.sql && wrangler d1 execute anime-tracker --local --file .wrangler/seed.sql",
     "cf:dev": "vite build && wrangler dev",
+    "cf:deploy": "vite build && wrangler deploy",
+    "cf:db:remote": "wrangler d1 migrations apply anime-tracker --remote",
     "restore": "tsx scripts/restore.ts"
   },
   "dependencies": {

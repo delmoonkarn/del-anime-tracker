@@ -4,8 +4,11 @@
 #   npm run cf:db:local     create / upgrade the local D1 tables (migrations/)
 #   npm run cf:seed:local   copy data/anime-tracker.db into the local D1
 #   npm run cf:dev          build the frontend and run it all at http://localhost:8787
+#   npm run cf:db:remote    create / upgrade the live D1 tables
+#   npm run cf:deploy       build the frontend and publish the live version
 
-name = "anime-tracker"
+# The app's address is https://<name>.<your workers.dev subdomain>.workers.dev
+name = "atracker"
 main = "server/worker.ts"
 compatibility_date = "2026-10-01"
 
@@ -13,6 +16,11 @@ compatibility_date = "2026-10-01"
 # Needs the RESEND_API_KEY and BACKUP_EMAIL_TO secrets (see server/worker.ts).
 [triggers]
 crons = ["0 0 1 * *"]
+
+# Keeps the Worker's logs (e.g. a failed backup email) viewable in the
+# Cloudflare dashboard under Workers & Pages > anime-tracker > Logs.
+[observability]
+enabled = true
 
 # The built frontend. /api/* goes to the Worker first; any other path that
 # isn't a file in dist/ gets index.html (single-page app).
@@ -24,7 +32,7 @@ run_worker_first = ["/api/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "anime-tracker"
-# Placeholder until the real database is created in your Cloudflare account
-# (`wrangler d1 create anime-tracker` prints the id). Local dev works without it.
-database_id = "00000000-0000-0000-0000-000000000000"
+# Created with `wrangler d1 create anime-tracker --location apac`. Running
+# your own copy? Create yours the same way and put its id here.
+database_id = "b97b2a18-af52-4555-a601-a0849a3d9637"
 migrations_dir = "migrations"

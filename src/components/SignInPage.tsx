@@ -1,20 +1,17 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { authCall, goToProvider, PROVIDER_NAME, type AuthInfo, type Provider } from '@/lib/auth';
-import { BTN, BTN_PRIMARY, FIELD, SURFACE } from '@/lib/ui';
-import { ProviderIcon } from './ProviderIcon';
+import { authCall, type AuthInfo } from '@/lib/auth';
+import { BTN_PRIMARY, FIELD, SURFACE } from '@/lib/ui';
 
 interface Props {
   info: AuthInfo;
-  /** Message carried back from a Google / AniList redirect. */
-  initialError?: string;
   onSignedIn: () => void;
 }
 
 const INPUT = `${FIELD} h-10 w-full`;
 
 /** First-run setup when there's no account yet, otherwise the sign-in form. */
-export function SignInPage({ info, initialError, onSignedIn }: Props) {
+export function SignInPage({ info, onSignedIn }: Props) {
   return (
     <div className="grid min-h-screen place-items-center px-4 py-10">
       <div className={`${SURFACE} w-full max-w-sm p-6 sm:p-7`}>
@@ -25,7 +22,7 @@ export function SignInPage({ info, initialError, onSignedIn }: Props) {
         {info.needsSetup ? (
           <SetupForm canSetup={!!info.canSetup} onDone={onSignedIn} />
         ) : (
-          <SignInForm info={info} initialError={initialError} onDone={onSignedIn} />
+          <SignInForm onDone={onSignedIn} />
         )}
       </div>
     </div>
@@ -49,12 +46,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function SignInForm({ info, initialError, onDone }: { info: AuthInfo; initialError?: string; onDone: () => void }) {
+function SignInForm({ onDone }: { onDone: () => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(initialError ?? '');
+  const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const providers = (['google', 'anilist'] as Provider[]).filter((p) => info.providers?.[p]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -88,21 +84,6 @@ function SignInForm({ info, initialError, onDone }: { info: AuthInfo; initialErr
         {busy && <Loader2 className="h-4 w-4 animate-spin" />}
         Sign in
       </button>
-      {providers.length > 0 && (
-        <>
-          <div className="flex items-center gap-3 text-xs text-zinc-500">
-            <span className="h-px flex-1 bg-zinc-800" />
-            or
-            <span className="h-px flex-1 bg-zinc-800" />
-          </div>
-          {providers.map((p) => (
-            <button key={p} type="button" className={`${BTN} h-10 gap-2.5`} onClick={() => goToProvider(p, 'login')}>
-              <ProviderIcon provider={p} />
-              Continue with {PROVIDER_NAME[p]}
-            </button>
-          ))}
-        </>
-      )}
     </form>
   );
 }
@@ -151,7 +132,7 @@ function SetupForm({ canSetup, onDone }: { canSetup: boolean; onDone: () => void
       <div>
         <h1 className="text-xl font-semibold">Set up your tracker</h1>
         <p className="mt-1.5 text-sm text-zinc-400">
-          Create the account that owns this tracker. You can link Google and AniList once you're in.
+          Create the account that owns this tracker.
         </p>
       </div>
       {error && <ErrorNote text={error} />}

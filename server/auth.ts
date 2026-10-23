@@ -1,6 +1,4 @@
-// Sign-in. The tracker has one account (yours), which can sign in with a
-// username + password, Google, or AniList — any mix, linked from the app's
-// Sign-in methods dialog. At least one method always stays linked.
+// Sign-in. The tracker has one account (yours): a username + password.
 //
 // Sessions are rows in auth_session keyed by a SHA-256 of the random token in
 // the cookie, so they can be revoked and a database copy holds no live token.
@@ -9,41 +7,27 @@
 // REQUIRE_LOGIN=1 (the local app is only reachable from your own PC).
 //
 // Endpoints:
-//   GET    /api/auth/me                   who's signed in, and with what
+//   GET    /api/auth/me                   who's signed in
 //   POST   /api/auth/setup                first run: create the account (needs SETUP_CODE)
 //   POST   /api/auth/login                username + password
 //   POST   /api/auth/logout               this device
 //   POST   /api/auth/logout-all           every device
-//   PUT    /api/auth/password             set or change username + password
-//   DELETE /api/auth/password             remove the password
-//   GET    /api/auth/:provider/start      off to Google / AniList (?mode=login|link)
-//   GET    /api/auth/:provider/callback   back from Google / AniList
-//   DELETE /api/auth/:provider            unlink Google / AniList
+//   PUT    /api/auth/password             change username + password
 
 import type { Context, Env, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { sql, type SqlDb } from './sql';
-
-export interface OAuthClient {
-  clientId: string;
-  clientSecret: string;
-}
 
 export interface AuthConfig {
   /** false: everything is open and /me says so (the local app's default). */
   required: boolean;
   /** One-time code that unlocks first-run setup; unset means setup is closed. */
   setupCode?: string;
-  google?: OAuthClient;
-  anilist?: OAuthClient;
   /** The caller's address, for the wrong-password lockout. */
   ip: string;
 }
 
-type Provider = 'google' | 'anilist';
-
 const SESSION_COOKIE = 'session';
-const STATE_COOKIE = 'oauth_state';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 // Sessions in use get pushed out again once they're past halfway.
 const RENEW_BELOW_MS = SESSION_MS / 2;
@@ -118,30 +102,15 @@ interface AccountRow {
   username: string;
   password_hash: string | null;
 }
-interface IdentityRow {
-  provider: Provider;
-  subject: string;
-  label: string | null;
-}
 
 function getAccount(db: SqlDb): Promise<AccountRow | null> {
   return db.first<AccountRow>('SELECT username, password_hash FROM auth_account WHERE id = 1');
 }
 
-function getIdentities(db: SqlDb): Promise<IdentityRow[]> {
-  return db.all<IdentityRow>('SELECT provider, subject, label FROM auth_identity');
-}
-
-function isHttps(c: Context): boolean {
-  return new URL(c.req.url).protocol === 'https:';
-}
-
 function setSessionCookie(c: Context, token: string): void {
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: isHttps(c),
-    // Lax, not Strict: the cookie has to come along when Google / AniList
-    // send you back here, or linking couldn't see who's signed in.
+    secure: new URL(c.req.url).protocol === 'https:',
     sameSite: 'Lax',
     path: '/',
     maxAge: SESSION_MS / 1000,
@@ -212,93 +181,6 @@ async function body(c: Context): Promise<Record<string, unknown>> {
   }
 }
 
-// ---- Google / AniList ------------------------------------------------------
-
-interface ProviderSpec {
-  authorizeUrl: string;
-  extraParams: Record<string, string>;
-  /** Trades the code for the provider's id for this person, plus a label to show. */
-  identify(client: OAuthClient, code: string, redirectUri: string): Promise<{ subject: string; label: string }>;
-}
-
-async function okJson<T>(res: Response, what: string): Promise<T> {
-  if (!res.ok) throw new Error(`${what}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
-  return (await res.json()) as T;
-}
-
-const PROVIDERS: Record<Provider, ProviderSpec> = {
-  google: {
-    authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-    extraParams: { scope: 'openid email profile', prompt: 'select_account' },
-    async identify(client, code, redirectUri) {
-      const token = await okJson<{ access_token: string }>(
-        await fetch('https://oauth2.googleapis.com/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            grant_type: 'authorization_code',
-            code,
-            client_id: client.clientId,
-            client_secret: client.clientSecret,
-            redirect_uri: redirectUri,
-          }),
-        }),
-        'Google token',
-      );
-      const me = await okJson<{ sub: string; email?: string; name?: string }>(
-        await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
-          headers: { Authorization: `Bearer ${token.access_token}` },
-        }),
-        'Google userinfo',
-      );
-      return { subject: me.sub, label: me.email ?? me.name ?? 'Google account' };
-    },
-  },
-  anilist: {
-    authorizeUrl: 'https://anilist.co/api/v2/oauth/authorize',
-    extraParams: {},
-    async identify(client, code, redirectUri) {
-      const token = await okJson<{ access_token: string }>(
-        await fetch('https://anilist.co/api/v2/oauth/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({
-            grant_type: 'authorization_code',
-            client_id: client.clientId,
-            client_secret: client.clientSecret,
-            redirect_uri: redirectUri,
-            code,
-          }),
-        }),
-        'AniList token',
-      );
-      const me = await okJson<{ data?: { Viewer?: { id: number; name: string } } }>(
-        await fetch('https://graphql.anilist.co', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token.access_token}`,
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({ query: '{ Viewer { id name } }' }),
-        }),
-        'AniList viewer',
-      );
-      const viewer = me.data?.Viewer;
-      if (!viewer) throw new Error('AniList viewer: no Viewer in response');
-      return { subject: String(viewer.id), label: viewer.name };
-    },
-  },
-};
-
-function isProvider(p: string): p is Provider {
-  return p === 'google' || p === 'anilist';
-}
-
-function redirectUri(c: Context, provider: Provider): string {
-  return `${new URL(c.req.url).origin}/api/auth/${provider}/callback`;
-}
-
 // ---- Routes ----------------------------------------------------------------
 
 export function mountAuth<E extends Env>(
@@ -325,26 +207,9 @@ export function mountAuth<E extends Env>(
     if (!cfg.required) return c.json({ required: false });
     const db = dbFor(c);
     const [account, session] = await Promise.all([getAccount(db), currentSession(c, db)]);
-    const providers = { google: !!cfg.google, anilist: !!cfg.anilist };
-    if (!account) return c.json({ required: true, signedIn: false, needsSetup: true, canSetup: !!cfg.setupCode, providers });
-    if (!session) return c.json({ required: true, signedIn: false, needsSetup: false, providers });
-    const ids = await getIdentities(db);
-    const label = (p: Provider) => {
-      const row = ids.find((i) => i.provider === p);
-      return row ? (row.label ?? p) : null;
-    };
-    return c.json({
-      required: true,
-      signedIn: true,
-      needsSetup: false,
-      providers,
-      account: {
-        username: account.username,
-        hasPassword: account.password_hash != null,
-        google: label('google'),
-        anilist: label('anilist'),
-      },
-    });
+    if (!account) return c.json({ required: true, signedIn: false, needsSetup: true, canSetup: !!cfg.setupCode });
+    if (!session) return c.json({ required: true, signedIn: false, needsSetup: false });
+    return c.json({ required: true, signedIn: true, needsSetup: false, account: { username: account.username } });
   });
 
   app.post('/api/auth/setup', async (c) => {
@@ -435,104 +300,6 @@ export function mountAuth<E extends Env>(
       sql('UPDATE auth_account SET username = ?, password_hash = ? WHERE id = 1', username, await hashPassword(password)),
       sql('DELETE FROM auth_session WHERE token_hash != ?', session),
     ]);
-    return c.json({ ok: true });
-  });
-
-  app.delete('/api/auth/password', async (c) => {
-    const db = dbFor(c);
-    if (!(await currentSession(c, db))) return c.json({ error: 'signed-out' }, 401);
-    if ((await getIdentities(db)).length === 0) {
-      return c.json({ error: 'Link Google or AniList first, so you can still sign in.' }, 409);
-    }
-    await db.batch([sql('UPDATE auth_account SET password_hash = NULL WHERE id = 1')]);
-    return c.json({ ok: true });
-  });
-
-  app.get('/api/auth/:provider/start', async (c) => {
-    const provider = c.req.param('provider');
-    const client = isProvider(provider) ? authFor(c)[provider] : undefined;
-    if (!isProvider(provider) || !client) return c.json({ error: 'Not set up on this server.' }, 404);
-    const mode = c.req.query('mode') === 'link' ? 'link' : 'login';
-    const db = dbFor(c);
-    if (mode === 'link' && !(await currentSession(c, db))) return c.redirect('/?auth_error=signed-out');
-    if (mode === 'login' && !(await getAccount(db))) return c.redirect('/?auth_error=no-account');
-    const state = randomToken(16);
-    setCookie(c, STATE_COOKIE, `${provider}.${mode}.${state}`, {
-      httpOnly: true,
-      secure: isHttps(c),
-      sameSite: 'Lax',
-      path: '/api/auth',
-      maxAge: 10 * 60,
-    });
-    const spec = PROVIDERS[provider];
-    const url = new URL(spec.authorizeUrl);
-    url.search = new URLSearchParams({
-      client_id: client.clientId,
-      redirect_uri: redirectUri(c, provider),
-      response_type: 'code',
-      state,
-      ...spec.extraParams,
-    }).toString();
-    return c.redirect(url.toString());
-  });
-
-  app.get('/api/auth/:provider/callback', async (c) => {
-    const provider = c.req.param('provider');
-    const client = isProvider(provider) ? authFor(c)[provider] : undefined;
-    if (!isProvider(provider) || !client) return c.json({ error: 'Not set up on this server.' }, 404);
-    // The state cookie proves this callback finishes a sign-in this browser
-    // started. Without it, someone could send you a link that quietly links
-    // *their* Google or AniList account to your tracker.
-    const saved = getCookie(c, STATE_COOKIE)?.split('.') ?? [];
-    deleteCookie(c, STATE_COOKIE, { path: '/api/auth' });
-    const [savedProvider, mode, savedState] = saved;
-    const state = c.req.query('state');
-    const code = c.req.query('code');
-    if (savedProvider !== provider || !savedState || !state || !(await sameText(state, savedState))) {
-      return c.redirect('/?auth_error=state');
-    }
-    if (!code) return c.redirect(`/?auth_error=cancelled`);
-    let who: { subject: string; label: string };
-    try {
-      who = await PROVIDERS[provider].identify(client, code, redirectUri(c, provider));
-    } catch (err) {
-      console.error(`[auth] ${provider} sign-in failed`, err);
-      return c.redirect(`/?auth_error=${provider}`);
-    }
-    const db = dbFor(c);
-    if (mode === 'link') {
-      if (!(await currentSession(c, db))) return c.redirect('/?auth_error=signed-out');
-      await db.batch([
-        sql(
-          `INSERT INTO auth_identity (provider, subject, label, linked_at) VALUES (?, ?, ?, ?)
-           ON CONFLICT(provider) DO UPDATE SET subject = excluded.subject, label = excluded.label, linked_at = excluded.linked_at`,
-          provider,
-          who.subject,
-          who.label,
-          Date.now(),
-        ),
-      ]);
-      return c.redirect(`/?auth=linked-${provider}`);
-    }
-    const linked = await db.first<{ subject: string }>(
-      'SELECT subject FROM auth_identity WHERE provider = ? AND subject = ?',
-      provider,
-      who.subject,
-    );
-    if (!linked) return c.redirect(`/?auth_error=not-linked-${provider}`);
-    await startSession(c, db);
-    return c.redirect('/');
-  });
-
-  app.delete('/api/auth/:provider', async (c) => {
-    const provider = c.req.param('provider');
-    if (!isProvider(provider)) return c.json({ error: 'Unknown sign-in method.' }, 404);
-    const db = dbFor(c);
-    if (!(await currentSession(c, db))) return c.json({ error: 'signed-out' }, 401);
-    const [account, ids] = await Promise.all([getAccount(db), getIdentities(db)]);
-    const others = ids.filter((i) => i.provider !== provider).length + (account?.password_hash ? 1 : 0);
-    if (others === 0) return c.json({ error: "That's your only way to sign in. Add another first." }, 409);
-    await db.batch([sql('DELETE FROM auth_identity WHERE provider = ?', provider)]);
     return c.json({ ok: true });
   });
 }
