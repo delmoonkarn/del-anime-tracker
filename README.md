@@ -154,7 +154,15 @@ On your very first deploy, Cloudflare may ask you to choose a `workers.dev` subd
 
 ### 8. Create your account
 
-Open that address. You'll see **Set up your tracker**: choose a username and a password (8 or more characters), and enter the setup code from step 5 if you set one. You're signed in for 30 days at a time on each device.
+Open the address from step 7. Because no account exists yet, you get a **Set up your tracker** page instead of a sign-in page:
+
+1. Choose a username.
+2. Choose a password (8 or more characters).
+3. If you did step 5, type the setup code.
+
+That creates your account, the only one the tracker has. After this, the site shows a normal sign-in page.
+
+Each device stays signed in as long as you open the tracker at least once every 30 days. A device left unused for longer asks you to sign in again.
 
 ### 9. Turn on backup email
 

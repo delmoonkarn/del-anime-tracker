@@ -78,9 +78,8 @@ export function openSqlite(dbPath: string, { readonly = false } = {}): LocalDb {
 // run: the same files and table `wrangler d1 migrations apply` uses for D1.
 
 const MIGRATIONS_DIR = join(process.cwd(), 'migrations');
+const readMigration = (name: string) => readFileSync(join(MIGRATIONS_DIR, name), 'utf8');
 
-// Databases from before the local app used migrations/ already have what
-// these create.
 const BUILT_BEFORE_MIGRATIONS = ['0001_initial.sql', '0002_auth.sql', '0003_drop_auth_identity.sql', '0004_settings.sql'];
 
 function migrate(db: Database.Database): void {
@@ -92,14 +91,37 @@ function migrate(db: Database.Database): void {
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
   )`);
   const record = db.prepare('INSERT INTO d1_migrations (name) VALUES (?)');
-  if (older) for (const name of BUILT_BEFORE_MIGRATIONS) record.run(name);
+  if (older) {
+    db.transaction(() => {
+      catchUp(db, hasTable);
+      for (const name of BUILT_BEFORE_MIGRATIONS) record.run(name);
+    })();
+  }
   const applied = new Set((db.prepare('SELECT name FROM d1_migrations').all() as { name: string }[]).map((r) => r.name));
   for (const name of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort()) {
     if (applied.has(name)) continue;
     db.transaction(() => {
-      db.exec(readFileSync(join(MIGRATIONS_DIR, name), 'utf8'));
+      db.exec(readMigration(name));
       record.run(name);
     })();
     console.info(`[db] applied ${name}`);
   }
+}
+
+/**
+ * A database from before the local app used migrations/ (release v3.0.0 or
+ * v3.1.0, or a build after them) gets the parts of 0001–0004 it lacks, so
+ * those can count as run. Anything older needs v3.1.0 opened once first.
+ */
+function catchUp(db: Database.Database, hasTable: (name: string) => boolean): void {
+  // Order within a season or section, added after v3.1.0. NULL sorts first,
+  // then rowid: the order those releases saved in.
+  for (const table of ['anime_entries', 'collection']) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === 'position')) db.exec(`ALTER TABLE ${table} ADD COLUMN position INTEGER`);
+  }
+  // 0002–0004 only add and drop whole tables.
+  if (!hasTable('auth_account')) db.exec(readMigration('0002_auth.sql'));
+  db.exec('DROP TABLE IF EXISTS auth_identity');
+  if (!hasTable('app_settings')) db.exec(readMigration('0004_settings.sql'));
 }
