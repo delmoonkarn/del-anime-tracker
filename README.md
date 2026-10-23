@@ -2,7 +2,8 @@
 
 Personal seasonal anime tracker with AniList integration. Tracks watch progress, manages favorites, and keeps everything in your own database: on your PC, or online for free on Cloudflare.
 
-<img width="1286" height="918" alt="image" src="https://github.com/user-attachments/assets/6b1c32c2-85a1-4272-9f94-9bfe9879c6a2" />
+<img width="1277" height="908" alt="image" src="https://github.com/user-attachments/assets/da50f8ef-d2e7-4c92-8fcf-13ded492c342" />
+
 
 ## Contents
 
