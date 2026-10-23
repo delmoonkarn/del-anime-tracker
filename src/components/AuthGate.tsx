@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
-import { AuthContext, fetchAuth, SIGNED_OUT_EVENT, type AuthInfo } from '@/lib/auth';
+import { AuthContext, fetchAuth, resetTokenFromUrl, SIGNED_OUT_EVENT, type AuthInfo } from '@/lib/auth';
 import { BTN } from '@/lib/ui';
-import { SignInPage } from './SignInPage';
+import { ResetPasswordPage, SignInPage } from './SignInPage';
 
 /**
  * Renders the app only once you're signed in (or when sign-in is off, as on
@@ -12,6 +12,8 @@ import { SignInPage } from './SignInPage';
 export function AuthGate({ children }: { children: ReactNode }) {
   const [info, setInfo] = useState<AuthInfo | null>(null);
   const [failed, setFailed] = useState(false);
+  // Opened from a password-reset email.
+  const [resetToken, setResetToken] = useState(resetTokenFromUrl);
 
   const refresh = useCallback(async () => {
     try {
@@ -30,6 +32,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(SIGNED_OUT_EVENT, onSignedOut);
   }, [refresh]);
 
+  if (resetToken) {
+    return (
+      <ResetPasswordPage
+        token={resetToken}
+        onDone={() => {
+          setResetToken(null);
+          void refresh();
+        }}
+      />
+    );
+  }
   if (failed && !info) {
     return (
       <div className="grid min-h-screen place-items-center px-4 text-center">

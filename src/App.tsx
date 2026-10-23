@@ -10,6 +10,7 @@ import { HDiscoverPage } from '@/components/HDiscoverPage';
 import { HFavoritesPage } from '@/components/HFavoritesPage';
 import { CollectionPage } from '@/components/CollectionPage';
 import { WatchlistPage, type WatchItem } from '@/components/WatchlistPage';
+import { SettingsPage } from '@/components/SettingsPage';
 import { AnimeDetailPage } from '@/components/AnimeDetailPage';
 import { NavProvider, entryLink } from '@/lib/nav';
 import { brandFor, buildBrandIndex, toAnilistLinks } from '@/lib/streamLinks';
@@ -1489,6 +1490,7 @@ export function App() {
         isScheduleActive={detailId === null && view === 'schedule'}
         onWatchlist={() => goTo('watchlist')}
         isWatchlistActive={detailId === null && view === 'watchlist'}
+        onSettings={() => goTo('settings')}
       />
 
       {detailId !== null && (
@@ -1512,7 +1514,9 @@ export function App() {
       )}
 
       <div className={detailId !== null ? 'hidden' : undefined}>
-      {view === 'watchlist' ? (
+      {view === 'settings' ? (
+        <SettingsPage />
+      ) : view === 'watchlist' ? (
         <WatchlistPage
           items={watchItems}
           progressOf={(id) => scheduleProgress.get(id)}

@@ -4,11 +4,12 @@
 // Prod (`npm run build` then `npm start`, or ATracker.exe): also serves the
 // built static frontend from dist/, so a single Node process delivers both.
 //
-// Sign-in is off: the local app is only reachable from your own PC. Running
-// this on a server instead? Set REQUIRE_LOGIN=1 and SETUP_CODE.
+// Sign-in is off, so the app listens only on this PC (127.0.0.1) and answers
+// only to its own names. Running this on a server instead? Set HOST=0.0.0.0,
+// REQUIRE_LOGIN=1 and SETUP_CODE.
 //
-// "Email backup now" works here too with RESEND_API_KEY + BACKUP_EMAIL_TO
-// set; the monthly email is the cloud version's (Workers cron).
+// Backup email is set up from the Settings page here too ("Email backup
+// now"); the monthly email is the cloud version's (Workers cron).
 
 import { serve } from '@hono/node-server';
 import { getConnInfo } from '@hono/node-server/conninfo';
@@ -16,12 +17,28 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { createApp } from './app';
-import { writeByKey } from './db';
-import { importLegacyJson, openSqlite } from './sqlite';
+import { openSqlite } from './sqlite';
 
 const PORT = Number(process.env.PORT) || 3001;
+const HOST = process.env.HOST || '127.0.0.1';
+
+// Answers only to this PC's own names: otherwise a website could point its
+// domain at 127.0.0.1 (DNS rebinding), and its pages could use the app.
+const LOCAL_NAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+function fromThisPc(req: Request): boolean {
+  return HOST !== '127.0.0.1' || LOCAL_NAMES.has(new URL(req.url).hostname);
+}
 const DATA_DIR = join(process.cwd(), 'data');
-const db = openSqlite(join(DATA_DIR, 'anime-tracker.db')).db;
+const local = openSqlite(join(DATA_DIR, 'anime-tracker.db'));
+const db = local.db;
+
+/** Before a restore from Settings: the current data, copied aside (as npm run restore does). */
+async function saveCopy(): Promise<string> {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+  const name = `anime-tracker.before-restore-${stamp}.db`;
+  await local.copyTo(join(DATA_DIR, name));
+  return `data/${name}`;
+}
 
 const env = process.env;
 const app = createApp(
@@ -32,11 +49,12 @@ const app = createApp(
     ip: getConnInfo(c).remote.address ?? 'unknown',
   }),
   () => ({
-    email:
+    serverEmail:
       env.RESEND_API_KEY && env.BACKUP_EMAIL_TO
         ? { apiKey: env.RESEND_API_KEY, to: env.BACKUP_EMAIL_TO, from: env.BACKUP_EMAIL_FROM }
         : undefined,
-    monthly: false,
+    cron: false,
+    beforeRestore: saveCopy,
   }),
 );
 
@@ -65,12 +83,11 @@ if (existsSync(distDir)) {
   });
 }
 
-// Pull in JSON files left by very old versions before taking requests.
-importLegacyJson(DATA_DIR, (key, value) => writeByKey(db, key, value)).finally(() => {
-  serve({ fetch: app.fetch, port: PORT }, (info) => {
-    console.log(`[api] listening on http://localhost:${info.port}`);
-    if (existsSync(distDir)) {
-      console.log(`[api] serving static dist/ from same port`);
-    }
-  });
+const fetch: typeof app.fetch = (req, env) =>
+  fromThisPc(req) ? app.fetch(req, env) : new Response('Not found', { status: 403 });
+serve({ fetch, port: PORT, hostname: HOST }, (info) => {
+  console.log(`[api] listening on http://localhost:${info.port}`);
+  if (existsSync(distDir)) {
+    console.log(`[api] serving static dist/ from same port`);
+  }
 });

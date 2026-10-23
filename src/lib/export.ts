@@ -292,7 +292,6 @@ function writeCollectionSheet(
     { width: 30 }, // G: tags
     { width: 8 }, // H: format
     { width: 8 }, // I: eps
-    { width: 8 }, // J: score
   ];
 
   const headers = [
@@ -305,7 +304,6 @@ function writeCollectionSheet(
     'Top tags',
     'Format',
     'Eps',
-    'Score',
   ];
   const headerRow = ws.getRow(1);
   headerRow.height = 18;
@@ -357,9 +355,8 @@ function writeCollectionSheet(
     ws.getCell(`G${r}`).value = (e.tags ?? []).join(', ');
     ws.getCell(`H${r}`).value = e.format ?? '';
     ws.getCell(`I${r}`).value = e.episodes ?? '';
-    ws.getCell(`J${r}`).value = e.averageScore ?? '';
-    // Apply fill + base font to A–J
-    for (let col = 1; col <= 10; col++) {
+    // Apply fill + base font to A–I
+    for (let col = 1; col <= 9; col++) {
       const cell = ws.getRow(r).getCell(col);
       cell.fill = fill;
       if (!cell.font?.bold) cell.font = { name: FONT_NAME, size: 10 };

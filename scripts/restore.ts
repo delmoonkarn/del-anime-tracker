@@ -1,4 +1,4 @@
-// Loads a backup (from the Backup menu or the monthly email) back in.
+// Loads a backup (downloaded from Settings, or the monthly email) back in.
 //
 //   npm run restore -- <backup.sql>               the local app (data/anime-tracker.db)
 //   npm run restore -- <backup.sql> --d1 local    the local D1 that `npm run cf:dev` uses

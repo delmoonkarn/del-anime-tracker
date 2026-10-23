@@ -344,7 +344,6 @@ export async function importCollection(file: File): Promise<CollectionEntry[]> {
     const cTags = colIdx['top tags'] ?? 7;
     const cFormat = colIdx['format'] ?? 8;
     const cEps = colIdx['eps'] ?? 9;
-    const cScore = colIdx['score'] ?? 10;
 
     ws.eachRow((row, rowNum) => {
       if (rowNum === 1) return;
@@ -385,9 +384,6 @@ export async function importCollection(file: File): Promise<CollectionEntry[]> {
       const epsRaw = row.getCell(cEps).value;
       const episodes =
         typeof epsRaw === 'number' ? epsRaw : Number(String(epsRaw ?? '')) || undefined;
-      const scoreRaw = row.getCell(cScore).value;
-      const averageScore =
-        typeof scoreRaw === 'number' ? scoreRaw : Number(String(scoreRaw ?? '')) || undefined;
 
       out.push({
         anilistId,
@@ -398,7 +394,6 @@ export async function importCollection(file: File): Promise<CollectionEntry[]> {
         tags,
         format,
         episodes,
-        averageScore,
         startDate,
         addedAt,
       });

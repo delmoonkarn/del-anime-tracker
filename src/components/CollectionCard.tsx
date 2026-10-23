@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Bookmark, Heart, Minus, MoreVertical, Plus, Trash2, Tv } from 'lucide-react';
 import type { CollectionEntry, ScheduleProgress } from '@/lib/types';
 import { useOpenDetail, useWatchLinks } from '@/lib/nav';
-import { AIRING_STATUS_LABEL, BTN_ICON, FORMAT_LABEL, MENU, MENU_ITEM, POSTER_ICON, SURFACE } from '@/lib/ui';
+import { BTN_ICON, FORMAT_LABEL, MENU, MENU_ITEM, POSTER_ICON, SURFACE } from '@/lib/ui';
 import { nextProgressOnDec, nextProgressOnInc, nextProgressOnSetStatus } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { StatusPill } from './StatusPill';
@@ -57,7 +57,6 @@ export function CollectionCard({
     entry.episodes != null ? `${entry.episodes} eps` : null,
     entry.startDate?.year ? String(entry.startDate.year) : null,
   ].filter(Boolean);
-  const airing = entry.status ? (AIRING_STATUS_LABEL[entry.status] ?? entry.status) : null;
 
   return (
     <article
@@ -129,12 +128,6 @@ export function CollectionCard({
               <span>{m}</span>
             </span>
           ))}
-          {airing && (
-            <>
-              {meta.length > 0 && <span aria-hidden>·</span>}
-              <span className={entry.status === 'RELEASING' ? 'font-medium text-emerald-400' : ''}>{airing}</span>
-            </>
-          )}
         </p>
 
         <div className="flex flex-wrap items-center gap-1">

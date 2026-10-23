@@ -6,14 +6,17 @@
 // Workers Static Assets, with unknown paths falling back to index.html
 // (see [assets] in wrangler.toml).
 //
-// Secrets (`wrangler secret put NAME`, or .dev.vars for wrangler dev):
-//   SETUP_CODE                        unlocks first-run account setup
-//   RESEND_API_KEY / BACKUP_EMAIL_TO  optional: backup emails
-//   BACKUP_EMAIL_FROM                 optional: sender on your own Resend domain
+// Optional secrets (`wrangler secret put NAME`, or .dev.vars for wrangler dev).
+// Everything else is set from the app's Settings page.
+//   SETUP_CODE                        a code first-run setup asks for
+//   RESEND_API_KEY / BACKUP_EMAIL_TO  backup email set the old way; copied
+//   BACKUP_EMAIL_FROM                 into Settings the first time it's opened
 
 import { createApp } from './app';
-import { emailBackup, type EmailConfig } from './backup';
+import { emailBackup } from './backup';
 import { d1Db, type D1Database } from './d1';
+import type { EmailConfig } from './email';
+import { getEmailSettings } from './settings';
 
 interface Bindings {
   DB: D1Database;
@@ -23,7 +26,7 @@ interface Bindings {
   BACKUP_EMAIL_FROM?: string;
 }
 
-function email(env: Bindings): EmailConfig | undefined {
+function serverEmail(env: Bindings): EmailConfig | undefined {
   return env.RESEND_API_KEY && env.BACKUP_EMAIL_TO
     ? { apiKey: env.RESEND_API_KEY, to: env.BACKUP_EMAIL_TO, from: env.BACKUP_EMAIL_FROM }
     : undefined;
@@ -36,17 +39,26 @@ const app = createApp<{ Bindings: Bindings }>(
     setupCode: c.env.SETUP_CODE,
     ip: c.req.header('cf-connecting-ip') ?? 'unknown',
   }),
-  (c) => ({ email: email(c.env), monthly: true }),
+  (c) => ({ serverEmail: serverEmail(c.env), cron: true }),
 );
 
 export default {
   fetch: app.fetch,
   async scheduled(_controller: unknown, env: Bindings, ctx: { waitUntil(p: Promise<unknown>): void }) {
-    const cfg = email(env);
-    if (!cfg) {
-      console.warn('[backup] monthly email skipped: set RESEND_API_KEY and BACKUP_EMAIL_TO');
-      return;
-    }
-    ctx.waitUntil(emailBackup(d1Db(env.DB), cfg, 'monthly'));
+    const db = d1Db(env.DB);
+    ctx.waitUntil(
+      (async () => {
+        const email = await getEmailSettings(db, serverEmail(env));
+        if (!email) {
+          console.warn('[backup] monthly email skipped: backup email is not set up (Settings)');
+          return;
+        }
+        if (!email.monthly) {
+          console.info('[backup] monthly email is turned off in Settings');
+          return;
+        }
+        await emailBackup(db, email, 'monthly');
+      })(),
+    );
   },
 };

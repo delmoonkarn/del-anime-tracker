@@ -1,11 +1,14 @@
-# Secrets for `npm run cf:dev` (wrangler dev). Copy to .dev.vars and fill in;
-# .dev.vars is gitignored. On Cloudflare, set each with:
+# Optional secrets for `npm run cf:dev` (wrangler dev). Copy to .dev.vars and
+# fill in; .dev.vars is gitignored. On Cloudflare, set one with:
 #   npx wrangler secret put NAME
+# All of them can stay empty: backup email is set up from the Settings page.
 
-# Unlocks first-run account setup. Any long random string.
+# A code that first-run account setup asks for, so nobody else can create the
+# account on a fresh deploy. Any long random string.
 SETUP_CODE=
 
-# Optional: backup emails (monthly on Cloudflare, plus "Email backup now").
+# Backup email the old way. The Settings page does the same and is easier;
+# if these are set, they're copied into Settings the first time it's opened.
 # resend.com > API Keys. Without your own domain on Resend, emails can only
 # go to the address you signed up to Resend with, so use that here.
 RESEND_API_KEY=

@@ -13,7 +13,6 @@ import { getCurrentSeasonName, seasonRank } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { MENU, MENU_ITEM } from '@/lib/ui';
 import { AccountMenu } from './AccountMenu';
-import { BackupMenu } from './BackupMenu';
 import { useConfirm } from './ConfirmDialog';
 import { GlobalSearch } from './GlobalSearch';
 
@@ -29,6 +28,7 @@ interface Props {
   isScheduleActive: boolean;
   onWatchlist: () => void;
   isWatchlistActive: boolean;
+  onSettings: () => void;
 }
 
 export function SeasonSelector({
@@ -43,6 +43,7 @@ export function SeasonSelector({
   isScheduleActive,
   onWatchlist,
   isWatchlistActive,
+  onSettings,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -367,8 +368,7 @@ export function SeasonSelector({
 
         <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
           <GlobalSearch />
-          <BackupMenu />
-          <AccountMenu />
+          <AccountMenu onOpenSettings={onSettings} />
         </div>
       </div>
     </header>

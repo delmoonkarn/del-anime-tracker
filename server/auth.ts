@@ -2,27 +2,39 @@
 //
 // Sessions are rows in auth_session keyed by a SHA-256 of the random token in
 // the cookie, so they can be revoked and a database copy holds no live token.
+// A forgotten password is reset through a one-time link emailed to the
+// backup address (Settings), so none of this needs the terminal.
 // Everything goes through SqlDb and Web Crypto, so it runs on both starters.
 // The Workers starter always requires sign-in; the Node one only when
 // REQUIRE_LOGIN=1 (the local app is only reachable from your own PC).
 //
 // Endpoints:
 //   GET    /api/auth/me                   who's signed in
-//   POST   /api/auth/setup                first run: create the account (needs SETUP_CODE)
+//   POST   /api/auth/setup                first run: create the account
 //   POST   /api/auth/login                username + password
 //   POST   /api/auth/logout               this device
 //   POST   /api/auth/logout-all           every device
 //   PUT    /api/auth/password             change username + password
+//   POST   /api/auth/forgot               email a reset link
+//   POST   /api/auth/reset/check          is this reset link still good (and whose)
+//   POST   /api/auth/reset                set a new password from a reset link
 
 import type { Context, Env, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
+import { sendEmail, type EmailConfig } from './email';
 import { sql, type SqlDb } from './sql';
 
 export interface AuthConfig {
   /** false: everything is open and /me says so (the local app's default). */
   required: boolean;
-  /** One-time code that unlocks first-run setup; unset means setup is closed. */
+  /**
+   * Optional code that first-run setup asks for. Without it, whoever opens a
+   * fresh deploy first can create the account, so set the account up right
+   * after deploying (or set SETUP_CODE).
+   */
   setupCode?: string;
+  /** Where reset links go: the backup-email settings, or null when email isn't set up. */
+  resetEmail?: () => Promise<EmailConfig | null>;
   /** The caller's address, for the wrong-password lockout. */
   ip: string;
 }
@@ -33,6 +45,9 @@ const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const RENEW_BELOW_MS = SESSION_MS / 2;
 const LOCKOUT_TRIES = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
+const RESET_MS = 30 * 60 * 1000;
+// Reset emails per hour, so the button can't be used to flood your inbox.
+const RESET_PER_HOUR = 3;
 // PBKDF2 rounds. OWASP suggests far more, but each request on the Workers
 // free plan gets 10 ms of CPU and 100k rounds take ~25 ms. The lockout above
 // keeps online guessing slow; the round count is stored with each hash, so
@@ -207,8 +222,11 @@ export function mountAuth<E extends Env>(
     if (!cfg.required) return c.json({ required: false });
     const db = dbFor(c);
     const [account, session] = await Promise.all([getAccount(db), currentSession(c, db)]);
-    if (!account) return c.json({ required: true, signedIn: false, needsSetup: true, canSetup: !!cfg.setupCode });
-    if (!session) return c.json({ required: true, signedIn: false, needsSetup: false });
+    if (!account) return c.json({ required: true, signedIn: false, needsSetup: true, needsCode: !!cfg.setupCode });
+    if (!session) {
+      const canReset = !!(await cfg.resetEmail?.());
+      return c.json({ required: true, signedIn: false, needsSetup: false, canReset });
+    }
     return c.json({ required: true, signedIn: true, needsSetup: false, account: { username: account.username } });
   });
 
@@ -216,10 +234,9 @@ export function mountAuth<E extends Env>(
     const cfg = authFor(c);
     const db = dbFor(c);
     if (await getAccount(db)) return c.json({ error: 'The account already exists.' }, 409);
-    if (!cfg.setupCode) return c.json({ error: 'Setup is closed: SETUP_CODE is not set.' }, 403);
     if (await lockedOut(db, cfg.ip)) return c.json({ error: 'Too many wrong tries. Wait 15 minutes.' }, 429);
     const b = await body(c);
-    if (typeof b.code !== 'string' || !(await sameText(b.code, cfg.setupCode))) {
+    if (cfg.setupCode && (typeof b.code !== 'string' || !(await sameText(b.code, cfg.setupCode)))) {
       await recordFailure(db, cfg.ip);
       return c.json({ error: 'Wrong setup code.' }, 403);
     }
@@ -300,6 +317,92 @@ export function mountAuth<E extends Env>(
       sql('UPDATE auth_account SET username = ?, password_hash = ? WHERE id = 1', username, await hashPassword(password)),
       sql('DELETE FROM auth_session WHERE token_hash != ?', session),
     ]);
+    return c.json({ ok: true });
+  });
+
+  // ---- Forgotten password ------------------------------------------------
+
+  app.post('/api/auth/forgot', async (c) => {
+    const cfg = authFor(c);
+    const db = dbFor(c);
+    const [account, email] = await Promise.all([getAccount(db), cfg.resetEmail?.()]);
+    if (!account || !email) {
+      return c.json({ error: "Password reset needs backup email, and it isn't set up on this tracker." }, 409);
+    }
+    const now = Date.now();
+    const recent = await db.first<{ n: number }>('SELECT COUNT(*) AS n FROM auth_reset WHERE created_at > ?', now - 3600_000);
+    if ((recent?.n ?? 0) >= RESET_PER_HOUR) {
+      return c.json({ error: 'A reset link was sent several times already. Check your inbox (and spam), or try again in an hour.' }, 429);
+    }
+    const token = randomToken();
+    const link = `${new URL(c.req.url).origin}/?reset=${token}`;
+    await db.batch([
+      sql('DELETE FROM auth_reset WHERE expires_at < ?', now - 24 * 3600_000),
+      sql('INSERT INTO auth_reset (token_hash, created_at, expires_at) VALUES (?, ?, ?)', await sha256(token), now, now + RESET_MS),
+    ]);
+    try {
+      await sendEmail(email, {
+        subject: 'Reset your Anime Tracker password',
+        text: [
+          `Someone asked to reset the password for your Anime Tracker (${new URL(c.req.url).host}).`,
+          '',
+          'If it was you, open this link within 30 minutes to choose a new one:',
+          link,
+          '',
+          "If it wasn't you, ignore this email: your password stays as it is.",
+        ].join('\n'),
+      });
+    } catch (err) {
+      console.error('[auth] reset email failed', err);
+      return c.json({ error: "Couldn't send the email. Check the Resend settings, or try again later." }, 502);
+    }
+    return c.json({ ok: true, to: email.to.replace(/^(.).*?(.)?@/, (_, a, b) => `${a}•••${b ?? ''}@`) });
+  });
+
+  /** The reset link's token, if it's real and unused, as its stored hash. */
+  async function liveReset(db: SqlDb, token: unknown): Promise<string | null> {
+    if (typeof token !== 'string' || !token) return null;
+    const tokenHash = await sha256(token);
+    const row = await db.first<{ token_hash: string }>(
+      'SELECT token_hash FROM auth_reset WHERE token_hash = ? AND expires_at > ?',
+      tokenHash,
+      Date.now(),
+    );
+    return row ? tokenHash : null;
+  }
+
+  app.post('/api/auth/reset/check', async (c) => {
+    const db = dbFor(c);
+    const b = await body(c);
+    const account = await getAccount(db);
+    if (!account || !(await liveReset(db, b.token))) {
+      return c.json({ error: 'This reset link has expired or was already used. Ask for a new one.' }, 410);
+    }
+    return c.json({ ok: true, username: account.username });
+  });
+
+  app.post('/api/auth/reset', async (c) => {
+    const cfg = authFor(c);
+    const db = dbFor(c);
+    if (await lockedOut(db, cfg.ip)) return c.json({ error: 'Too many wrong tries. Wait 15 minutes.' }, 429);
+    const b = await body(c);
+    const account = await getAccount(db);
+    if (!account || !(await liveReset(db, b.token))) {
+      await recordFailure(db, cfg.ip);
+      return c.json({ error: 'This reset link has expired or was already used. Ask for a new one.' }, 410);
+    }
+    const username = b.username === undefined ? account.username : cleanUsername(b.username);
+    const password = cleanPassword(b.password);
+    if (!username) return c.json({ error: 'Pick a username (up to 64 characters).' }, 400);
+    if (!password) return c.json({ error: 'The password needs at least 8 characters.' }, 400);
+    // Every link and every signed-in device is done with after a reset.
+    await db.batch([
+      sql('UPDATE auth_account SET username = ?, password_hash = ? WHERE id = 1', username, await hashPassword(password)),
+      sql('DELETE FROM auth_reset'),
+      sql('DELETE FROM auth_session'),
+      sql('DELETE FROM auth_failure WHERE ip = ?', cfg.ip),
+    ]);
+    await startSession(c, db);
     return c.json({ ok: true });
   });
 }

@@ -9,8 +9,10 @@ export interface AuthInfo {
   signedIn?: boolean;
   /** No account yet: first-run setup. */
   needsSetup?: boolean;
-  /** Setup is possible (SETUP_CODE is set on the server). */
-  canSetup?: boolean;
+  /** Setup asks for the server's SETUP_CODE. */
+  needsCode?: boolean;
+  /** "Forgot password?" works (backup email is set up). */
+  canReset?: boolean;
   account?: { username: string };
 }
 
@@ -23,24 +25,50 @@ export async function fetchAuth(): Promise<AuthInfo> {
   return (await res.json()) as AuthInfo;
 }
 
-/** Calls an auth endpoint; resolves to the server's error message, or null when it worked. */
+/**
+ * Calls one of the app's own JSON endpoints. Resolves to { data } when it
+ * worked, or { error } with the server's message.
+ */
+export async function apiCall<T = Record<string, unknown>>(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  url: string,
+  body?: Record<string, unknown>,
+): Promise<{ data?: T; error?: string }> {
+  try {
+    const res = await fetch(url, {
+      method,
+      cache: 'no-store',
+      headers: body ? { 'content-type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
+    if (res.ok) return { data: data ?? undefined };
+    return { error: data?.error ?? `Something went wrong (HTTP ${res.status}).` };
+  } catch {
+    return { error: "Couldn't reach the server." };
+  }
+}
+
+/** An /api/auth call; resolves to the server's error message, or null when it worked. */
 export async function authCall(
   method: 'POST' | 'PUT',
   path: string,
   body?: Record<string, unknown>,
 ): Promise<string | null> {
-  try {
-    const res = await fetch(`/api/auth/${path}`, {
-      method,
-      headers: body ? { 'content-type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (res.ok) return null;
-    const data = (await res.json().catch(() => null)) as { error?: string } | null;
-    return data?.error ?? `Something went wrong (HTTP ${res.status}).`;
-  } catch {
-    return "Couldn't reach the server.";
-  }
+  return (await apiCall(method, `/api/auth/${path}`, body)).error ?? null;
+}
+
+/** The token from a reset link (?reset=...), if this page was opened from one. */
+export function resetTokenFromUrl(): string | null {
+  return new URLSearchParams(window.location.search).get('reset');
+}
+
+/** Drops ?reset=... from the address bar once it's been used. */
+export function clearResetToken(): void {
+  const params = new URLSearchParams(window.location.search);
+  params.delete('reset');
+  const query = params.toString();
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
 }
 
 export interface AuthContextValue {

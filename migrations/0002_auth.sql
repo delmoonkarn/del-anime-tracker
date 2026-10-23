@@ -1,9 +1,7 @@
--- Sign-in (server/auth.ts). Same tables as server/sqlite.ts creates locally.
--- Kept out of backups and out of scripts/export-sql.mjs: they hold how you
--- sign in, not tracker data.
+-- Sign-in (server/auth.ts). Kept out of backups: they hold how you sign in,
+-- not tracker data.
 
--- The one account. id is always 1; password_hash is NULL when you only sign
--- in through Google / AniList.
+-- The one account. id is always 1.
 CREATE TABLE auth_account (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   username TEXT NOT NULL,

@@ -3,8 +3,7 @@
 //
 // Storage logic, written against the SqlDb interface (server/sql.ts) so it
 // runs unchanged on local SQLite and on Cloudflare D1 — no Node APIs in here.
-// Schema and upgrades of old databases live with the backend that opens the
-// database (server/sqlite.ts).
+// The schema is migrations/*.sql, for both.
 //
 // Every write takes the client's whole value for a key, but only writes the
 // rows that differ from what's stored: ticking one episode writes one row
@@ -37,7 +36,7 @@ import {
   type TableSpec,
 } from './sql';
 
-export function hostOf(url: string): string {
+function hostOf(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {
@@ -265,11 +264,9 @@ interface CollectionRow {
   title: string;
   title_english: string | null;
   image_url: string | null;
-  description: string | null;
   tags_json: string | null;
   format: string | null;
   episodes: number | null;
-  average_score: number | null;
   start_year: number | null;
   start_month: number | null;
   start_day: number | null;
@@ -284,9 +281,8 @@ interface CollectionRow {
 const COLLECTION: TableSpec = {
   table: 'collection',
   cols: [
-    'anilist_id', 'section', 'title', 'title_english', 'image_url', 'description', 'tags_json',
-    'format', 'episodes', 'average_score', 'start_year', 'start_month', 'start_day', 'added_at',
-    'tags_full', 'position',
+    'anilist_id', 'section', 'title', 'title_english', 'image_url', 'tags_json', 'format',
+    'episodes', 'start_year', 'start_month', 'start_day', 'added_at', 'tags_full', 'position',
   ],
   key: ['anilist_id', 'section'],
 };
@@ -310,11 +306,9 @@ function rowToCollectionEntry(r: CollectionRow): CollectionEntry {
     title: r.title,
     titleEnglish: r.title_english ?? undefined,
     imageUrl: r.image_url ?? '',
-    description: r.description ?? undefined,
     tags: r.tags_json ? JSON.parse(r.tags_json) : [],
     format: r.format ?? undefined,
     episodes: r.episodes ?? undefined,
-    averageScore: r.average_score ?? undefined,
     startDate,
     addedAt: r.added_at,
     tagsFull: r.tags_full ? true : false,
@@ -349,11 +343,9 @@ async function writeCollection(db: SqlDb, items: CollectionEntry[]): Promise<num
     e.title,
     e.titleEnglish ?? null,
     e.imageUrl ?? null,
-    e.description ?? null,
     JSON.stringify(e.tags ?? []),
     e.format ?? null,
     e.episodes ?? null,
-    e.averageScore ?? null,
     e.startDate?.year ?? null,
     e.startDate?.month ?? null,
     e.startDate?.day ?? null,

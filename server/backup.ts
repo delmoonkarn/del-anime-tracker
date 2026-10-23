@@ -1,10 +1,11 @@
 // Backups: your tracker data as a plain SQL file that loads straight back
-// into the local SQLite file or D1 (scripts/restore.ts). Runs on both
-// starters through SqlDb.
+// into the local SQLite file or D1, from Settings (restoreBackup below) or
+// scripts/restore.ts. Runs on both starters through SqlDb.
 //
 // What's in it: seasons, shows, progress, collection, links, H favorites and
-// settings. Left out: the Explore and AniList-links caches (refetched on
-// their own) and the sign-in tables (how you log in isn't tracker data).
+// tracker preferences. Left out: the AniList caches (refetched on their
+// own), the sign-in tables (how you log in isn't tracker data) and
+// app_settings (it holds the Resend key).
 //
 // Plain .sql, not gzipped: the monthly email runs on Workers' free plan,
 // which gives it 10 ms of CPU, and gzip alone takes ~14 ms on a typical
@@ -15,6 +16,7 @@
 // over 100 KB, so long text values are inserted empty and then appended in
 // UPDATEs that each fit.
 
+import { sendEmail, type EmailConfig } from './email';
 import { sql, type SqlDb } from './sql';
 
 export interface BackupTable {
@@ -32,9 +34,10 @@ export const DATA_TABLES: BackupTable[] = [
   { table: 'collection', key: ['anilist_id', 'section'] },
   { table: 'anime_progress', key: ['anilist_id'] },
   { table: 'stream_links', key: ['anilist_id', 'position'] },
-  // Not the backup's own status row: restoring an old backup shouldn't
-  // rewind "last emailed".
-  { table: 'kv_store', key: ['key'], where: "key != 'backup-last'" },
+  // Not the backup's own status row (restoring an old backup shouldn't rewind
+  // "last emailed"), nor AniList's tag and streaming-service lists, which the
+  // app fetches again when they're missing.
+  { table: 'kv_store', key: ['key'], where: "key NOT IN ('backup-last', 'tags', 'link-sources')" },
   { table: 'h_favorites', key: ['anilist_id'] },
 ];
 
@@ -43,6 +46,9 @@ export const CACHE_TABLES: BackupTable[] = [
   { table: 'anilist_link_cache', key: ['anilist_id'] },
   { table: 'discover_cache', key: ['id'] },
 ];
+
+/** Every backup's first line starts with this; it's how a restore recognises one. */
+const HEADER = '-- Anime Tracker backup';
 
 // Text longer than this (UTF-16 units, so at most 24 KB of UTF-8) is
 // appended after the INSERT. A row of values under it stays far below
@@ -100,9 +106,9 @@ export async function buildBackupSql(
     tables.map((t) => db.all<Record<string, unknown>>(`SELECT * FROM ${t.table}${where(t)} ORDER BY rowid`)),
   );
   const lines = [
-    `-- Anime Tracker backup, ${now.toISOString()}`,
+    `${HEADER}, ${now.toISOString()}`,
     `-- Tables: ${tables.map((t) => t.table).join(', ')}`,
-    '-- Restore: npm run restore -- <this file>   (see README)',
+    '-- Restore: Settings > Restore from backup, or npm run restore -- <this file>   (see README)',
     ...[...tables].reverse().map((t) => `DELETE FROM ${t.table}${where(t)};`),
   ];
   // One plain loop: the monthly email runs this in a cold Worker, before
@@ -145,15 +151,86 @@ export function backupFilename(now = new Date()): string {
   return `anime-tracker-${now.toISOString().slice(0, 10)}.sql`;
 }
 
-// ---- Email (Resend) --------------------------------------------------------
+// ---- Restore ---------------------------------------------------------------
+//
+// Settings > Restore from backup. The file is split into its statements and
+// run as one batch, so it applies completely or not at all. Only what a
+// backup is made of is accepted (DELETE, INSERT and UPDATE on the tables in
+// DATA_TABLES), so a file can't reach the sign-in or settings tables.
 
-export interface EmailConfig {
-  /** Resend API key. */
-  apiKey: string;
-  to: string;
-  /** Defaults to Resend's test sender, which can only mail your own Resend address. */
-  from?: string;
+/** A file that isn't a backup this app can load; nothing was changed. */
+export class BackupFileError extends Error {}
+
+export interface ParsedBackup {
+  statements: string[];
+  rows: number;
+  /** When the backup was made (ISO time from its first line). */
+  madeAt: string;
 }
+
+/**
+ * The statements in a backup, without their ';'. Our files need only this
+ * much parsing: a ';' can sit inside a quoted value (where '' is a quote),
+ * and comments are whole lines between statements. indexOf keeps it cheap
+ * on Workers, where a restore shares the 10 ms CPU budget.
+ */
+export function splitStatements(text: string): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    const c = text.charCodeAt(i);
+    if (c === 10 || c === 13 || c === 32 || c === 9) {
+      i++;
+      continue;
+    }
+    if (text.startsWith('--', i)) {
+      const nl = text.indexOf('\n', i);
+      i = nl < 0 ? text.length : nl + 1;
+      continue;
+    }
+    const start = i;
+    let semi = -1;
+    for (;;) {
+      if (semi < i) semi = text.indexOf(';', i);
+      if (semi < 0) throw new BackupFileError('The file ends partway through. Is it the whole backup?');
+      const quote = text.indexOf("'", i);
+      if (quote < 0 || quote > semi) break;
+      // A '' inside a value reads as the value ending and a new one starting.
+      const close = text.indexOf("'", quote + 1);
+      if (close < 0) throw new BackupFileError('The file ends partway through. Is it the whole backup?');
+      i = close + 1;
+    }
+    out.push(text.slice(start, semi));
+    i = semi + 1;
+  }
+  return out;
+}
+
+const DATA_TABLE_NAMES = new Set(DATA_TABLES.map((t) => t.table));
+const STATEMENT = /^(?:DELETE FROM|INSERT INTO|UPDATE) (\w+)(?:[ (]|$)/;
+
+/** Checks a backup file and splits it up. Throws BackupFileError if it can't be loaded. */
+export function parseBackup(text: string): ParsedBackup {
+  const madeAt = new RegExp(`^${HEADER}, (\\S+)`).exec(text)?.[1];
+  if (!madeAt) throw new BackupFileError("That file isn't an Anime Tracker backup.");
+  const statements = splitStatements(text);
+  let rows = 0;
+  for (const s of statements) {
+    const table = STATEMENT.exec(s)?.[1];
+    if (!table || !DATA_TABLE_NAMES.has(table)) {
+      throw new BackupFileError(`The file has something in it that isn't tracker data: ${s.slice(0, 60)}`);
+    }
+    if (s.startsWith('INSERT')) rows++;
+  }
+  return { statements, rows, madeAt };
+}
+
+/** Replaces the tracker data with the backup's, in one transaction. */
+export async function restoreBackup(db: SqlDb, backup: ParsedBackup): Promise<void> {
+  await db.batch(backup.statements.map((s) => sql(s)));
+}
+
+// ---- Email -----------------------------------------------------------------
 
 export interface BackupResult {
   at: number;
@@ -204,31 +281,22 @@ export async function lastBackup(db: SqlDb): Promise<BackupResult | null> {
 export async function emailBackup(db: SqlDb, cfg: EmailConfig, reason: BackupResult['reason']): Promise<BackupResult> {
   const now = new Date();
   // Marked failed up front: if the Worker is stopped partway (CPU limit),
-  // the Backup menu shows that instead of a stale success.
+  // Settings shows that instead of a stale success.
   await recordResult(db, { at: now.getTime(), ok: false, reason, error: "Didn't finish" });
   let result: BackupResult;
   try {
     const { sql: text, rows } = await buildBackupSql(db, DATA_TABLES, now);
     const bytes = new TextEncoder().encode(text);
     const date = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: cfg.from || 'Anime Tracker <onboarding@resend.dev>',
-        to: [cfg.to],
-        subject: `Anime Tracker backup, ${date}`,
-        text: [
-          `Your ${reason === 'monthly' ? 'monthly ' : ''}Anime Tracker backup is attached (${rows} rows).`,
-          '',
-          'To restore it, from the project folder:',
-          `  npm run restore -- ${backupFilename(now)}                 (the local app)`,
-          `  npm run restore -- ${backupFilename(now)} --d1 remote     (the cloud version)`,
-        ].join('\n'),
-        attachments: [{ filename: backupFilename(now), content: toBase64(bytes) }],
-      }),
+    await sendEmail(cfg, {
+      subject: `Anime Tracker backup, ${date}`,
+      text: [
+        `Your ${reason === 'monthly' ? 'monthly ' : ''}Anime Tracker backup is attached (${rows} rows).`,
+        '',
+        'To restore it, open the tracker and go to Settings > Restore from backup.',
+      ].join('\n'),
+      attachments: [{ filename: backupFilename(now), content: toBase64(bytes) }],
     });
-    if (!res.ok) throw new Error(`Resend: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
     result = { at: now.getTime(), ok: true, reason, rows, bytes: bytes.length };
   } catch (err) {
     console.error('[backup] email failed', err);

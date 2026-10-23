@@ -1,6 +1,5 @@
--- D1 schema for the cloud version. The local SQLite database gets the same
--- tables from server/sqlite.ts, which also upgrades databases created by
--- older versions; keep the two in step.
+-- The schema, for both versions: wrangler applies these files to D1, and
+-- server/sqlite.ts applies them to the local database, in name order.
 
 CREATE TABLE seasons (
   id TEXT PRIMARY KEY,

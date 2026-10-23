@@ -187,7 +187,8 @@ export type AppView =
   | 'discover-h'
   | 'h-favorites'
   | 'collection-favorites'
-  | 'collection-interested';
+  | 'collection-interested'
+  | 'settings';
 
 /** H favorites live in their own DB table — separate from CollectionEntry. */
 export interface HFavoriteEntry extends DiscoverItem {
@@ -205,7 +206,9 @@ export interface ScheduleProgress {
   totalEpisodes?: number;
 }
 
-export interface CollectionEntry extends DiscoverItem {
+/** A Favorites / Interested show. AniList's synopsis, score and airing status
+ *  aren't kept: the Collection doesn't show them (a show's page loads them). */
+export interface CollectionEntry extends Omit<DiscoverItem, 'description' | 'averageScore' | 'status'> {
   addedAt: number;
   section: CollectionSection;
   startDate?: ReleaseDate | null;
