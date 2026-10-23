@@ -13,6 +13,7 @@ import type { DiscoverVariant, Season } from '@/lib/types';
 import { getCurrentSeasonName, seasonRank } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { MENU, MENU_ITEM } from '@/lib/ui';
+import { AccountMenu } from './AccountMenu';
 import { useConfirm } from './ConfirmDialog';
 import { GlobalSearch } from './GlobalSearch';
 
@@ -398,6 +399,7 @@ export function SeasonSelector({
           >
             <Download className="w-4 h-4" />
           </button>
+          <AccountMenu />
         </div>
       </div>
     </header>

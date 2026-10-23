@@ -182,6 +182,31 @@ function migrate(db: Database.Database): void {
       fetched_at INTEGER NOT NULL,
       links_json TEXT NOT NULL
     );
+
+    /* Sign-in (server/auth.ts), only used with REQUIRE_LOGIN=1 here. See
+       migrations/0002_auth.sql for what each table holds. */
+    CREATE TABLE IF NOT EXISTS auth_account (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      username TEXT NOT NULL,
+      password_hash TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS auth_identity (
+      provider TEXT PRIMARY KEY,
+      subject TEXT NOT NULL,
+      label TEXT,
+      linked_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS auth_session (
+      token_hash TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS auth_failure (
+      ip TEXT NOT NULL,
+      at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_auth_failure_ip ON auth_failure(ip, at);
   `);
 
   // One-time migration: older databases used a `hentai_favorites` table and a

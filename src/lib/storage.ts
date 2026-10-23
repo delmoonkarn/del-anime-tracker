@@ -9,11 +9,12 @@ import type {
   AnilistLinksCache,
   LinkSourcesCache,
 } from './types';
+import { SIGNED_OUT_EVENT } from './auth';
 
 // Storage layer notes
 // -------------------
-// Persistence lives in a SQLite DB on disk, served by the Hono route at
-// /api/storage/:key (see server/index.ts). This module is the client-side
+// Persistence lives in SQLite (local file or Cloudflare D1), served by the
+// Hono route at /api/storage/:key (see server/app.ts). This module is the client-side
 // adapter: it does async reads via fetch and debounces writes so rapid state
 // changes don't fire one HTTP request per change.
 //
@@ -45,10 +46,22 @@ type StorageKey =
   | 'anilist-links'
   | 'link-sources';
 
+// The session ended (expired, or signed out on another device). AuthGate
+// hears this and swaps the app for the sign-in page.
+function signedOut(): void {
+  window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+}
+
 async function readApi<T>(key: StorageKey): Promise<T | null> {
   if (typeof window === 'undefined') return null;
   try {
     const res = await fetch(`/api/storage/${key}`, { cache: 'no-store' });
+    if (res.status === 401) {
+      signedOut();
+      // Never settle: a null here would read as "no data yet" and the app
+      // would start from an empty tracker. AuthGate unmounts it instead.
+      return new Promise<never>(() => {});
+    }
     if (!res.ok) return null;
     const text = await res.text();
     if (text === 'null' || text.length === 0) return null;
@@ -61,11 +74,12 @@ async function readApi<T>(key: StorageKey): Promise<T | null> {
 
 async function writeApi(key: StorageKey, body: string): Promise<void> {
   if (typeof window === 'undefined') return;
-  await fetch(`/api/storage/${key}`, {
+  const res = await fetch(`/api/storage/${key}`, {
     method: 'PUT',
     body,
     headers: { 'content-type': 'application/json' },
   });
+  if (res.status === 401) signedOut();
 }
 
 // Debounce + coalesce per key: only the most recent value is sent.

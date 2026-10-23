@@ -6,8 +6,13 @@
 //
 // Endpoints added here on top of server/app.ts:
 //   GET  /api/db-zip         → streams the SQLite DB inside a date-stamped zip
+//
+// Sign-in is off: the local app is only reachable from your own PC. Running
+// this on a server instead? Set REQUIRE_LOGIN=1 plus the same SETUP_CODE /
+// GOOGLE_* / ANILIST_* variables the Workers starter reads.
 
 import { serve } from '@hono/node-server';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
@@ -24,7 +29,18 @@ function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-const app = createApp(() => db);
+const env = process.env;
+const client = (id?: string, secret?: string) => (id && secret ? { clientId: id, clientSecret: secret } : undefined);
+const app = createApp(
+  () => db,
+  (c) => ({
+    required: env.REQUIRE_LOGIN === '1',
+    setupCode: env.SETUP_CODE,
+    google: client(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET),
+    anilist: client(env.ANILIST_CLIENT_ID, env.ANILIST_CLIENT_SECRET),
+    ip: getConnInfo(c).remote.address ?? 'unknown',
+  }),
+);
 
 // ---- /api/db-zip ---------------------------------------------------------
 

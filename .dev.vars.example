@@ -1,0 +1,19 @@
+# Secrets for `npm run cf:dev` (wrangler dev). Copy to .dev.vars and fill in;
+# .dev.vars is gitignored. On Cloudflare, set each with:
+#   npx wrangler secret put NAME
+
+# Unlocks first-run account setup. Any long random string.
+SETUP_CODE=
+
+# Optional: Sign in with Google. Google Cloud Console > APIs & Services >
+# Credentials > OAuth client ID (Web application). Authorized redirect URI:
+#   http://localhost:8787/api/auth/google/callback   (and your live URL's)
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# Optional: Sign in with AniList. anilist.co/settings/developer > Create New
+# Application. AniList takes one redirect URL per app, so use one app for
+# local and another for live:
+#   http://localhost:8787/api/auth/anilist/callback
+ANILIST_CLIENT_ID=
+ANILIST_CLIENT_SECRET=

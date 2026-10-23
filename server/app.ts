@@ -1,15 +1,18 @@
 // API routes shared by both starters:
 //   server/index.ts  — Node + local SQLite (`npm start`, `npm run dev`, ATracker.exe)
 //   server/worker.ts — Cloudflare Workers + D1
-// Anything that differs between them (where the database comes from, static
-// files, the backup download) is passed in or added by the starter.
+// Anything that differs between them (where the database comes from, sign-in
+// settings, static files, the backup download) is passed in or added by the
+// starter.
 //
 // Endpoints:
 //   GET  /api/storage/:key   → readByKey
 //   PUT  /api/storage/:key   → writeByKey
 //   POST /api/storage/:key   → writeByKey (mirrors PUT; used by sendBeacon)
+//   /api/auth/*              → sign-in (server/auth.ts)
 
 import { Hono, type Context, type Env } from 'hono';
+import { mountAuth, type AuthConfig } from './auth';
 import { readByKey, writeByKey, type DbKey } from './db';
 import type { SqlDb } from './sql';
 
@@ -28,9 +31,19 @@ function isAllowed(key: string): key is DbKey {
   return ALLOWED.has(key as DbKey);
 }
 
-/** `dbFor` hands each request its database (on Workers it comes from the request's env). */
-export function createApp<E extends Env = Env>(dbFor: (c: Context<E>) => SqlDb): Hono<E> {
+/**
+ * `dbFor` / `authFor` hand each request its database and sign-in settings
+ * (on Workers both come from the request's env).
+ */
+export function createApp<E extends Env = Env>(
+  dbFor: (c: Context<E>) => SqlDb,
+  authFor: (c: Context<E>) => AuthConfig,
+): Hono<E> {
   const app = new Hono<E>();
+
+  // First, so its "signed in?" check runs before every route added after it,
+  // including the ones the starters add.
+  mountAuth(app, dbFor, authFor);
 
   // ---- /api/storage/:key -------------------------------------------------
 
