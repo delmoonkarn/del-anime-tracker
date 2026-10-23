@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   Compass,
-  Download,
   Heart,
   Menu,
   Pencil,
@@ -14,6 +13,7 @@ import { getCurrentSeasonName, seasonRank } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { MENU, MENU_ITEM } from '@/lib/ui';
 import { AccountMenu } from './AccountMenu';
+import { BackupMenu } from './BackupMenu';
 import { useConfirm } from './ConfirmDialog';
 import { GlobalSearch } from './GlobalSearch';
 
@@ -55,26 +55,6 @@ export function SeasonSelector({
   const closeMobile = useCallback(() => setMobileOpen(false), []);
   useClickOutside(mobileRef, mobileOpen, closeMobile);
   const confirm = useConfirm();
-
-  /** Confirmation-gated DB zip download. <a download> alone would
-   *  fire immediately; this lets the user back out if they misclicked. */
-  async function handleDbDownload() {
-    const ok = await confirm({
-      title: 'Download database backup',
-      message:
-        'Download a zip of your current database (anime-tracker.db)? The WAL is flushed first so the file is a clean point-in-time snapshot.',
-      confirmText: 'Download',
-    });
-    if (!ok) return;
-    // Programmatic click on a temporary <a> so the browser handles the
-    // Content-Disposition filename and save dialog.
-    const a = document.createElement('a');
-    a.href = '/api/db-zip';
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
 
   const activeSeason = seasons.find((s) => s.id === activeSeasonId) ?? null;
   const currentSeasonName = getCurrentSeasonName().toLowerCase();
@@ -387,18 +367,7 @@ export function SeasonSelector({
 
         <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
           <GlobalSearch />
-          {/* DB zip backup — confirmation-gated. On confirm, fires a
-              programmatic click that hits /api/db-zip and the browser
-              handles the save dialog from the Content-Disposition header. */}
-          <button
-            type="button"
-            onClick={handleDbDownload}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
-            title="Download database as .zip"
-            aria-label="Download database as .zip"
-          >
-            <Download className="w-4 h-4" />
-          </button>
+          <BackupMenu />
           <AccountMenu />
         </div>
       </div>

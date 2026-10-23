@@ -10,21 +10,23 @@ import type { SqlDb, SqlStatement } from './sql';
 
 export interface LocalDb {
   db: SqlDb;
-  /**
-   * Point-in-time copy of the .db file, for the download-backup route. The
-   * WAL checkpoint forces any in-flight writes into the main .db file before
-   * we read it, so the buffer is self-contained — no .db-wal/.db-shm
-   * sidecars needed to restore from it.
-   */
-  snapshot(): Buffer;
+  /** Runs a whole SQL script (a backup file) as one transaction. */
+  exec(script: string): void;
+  close(): void;
 }
 
-export function openSqlite(dbPath: string): LocalDb {
-  mkdirSync(dirname(dbPath), { recursive: true });
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  migrate(db);
+/** `readonly` opens an existing file as it is: no upgrades, no writes (scripts/export-sql.ts). */
+export function openSqlite(dbPath: string, { readonly = false } = {}): LocalDb {
+  let db: Database.Database;
+  if (readonly) {
+    db = new Database(dbPath, { readonly: true, fileMustExist: true });
+  } else {
+    mkdirSync(dirname(dbPath), { recursive: true });
+    db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    migrate(db);
+  }
 
   // The storage layer issues the same few dozen statements over and over,
   // so prepare each one once.
@@ -55,9 +57,11 @@ export function openSqlite(dbPath: string): LocalDb {
         return statements.length ? runBatch(statements) : 0;
       },
     },
-    snapshot() {
-      db.pragma('wal_checkpoint(TRUNCATE)');
-      return readFileSync(dbPath);
+    exec(script: string) {
+      db.transaction(() => db.exec(script))();
+    },
+    close() {
+      db.close();
     },
   };
 }

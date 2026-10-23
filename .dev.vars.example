@@ -17,3 +17,11 @@ GOOGLE_CLIENT_SECRET=
 #   http://localhost:8787/api/auth/anilist/callback
 ANILIST_CLIENT_ID=
 ANILIST_CLIENT_SECRET=
+
+# Optional: backup emails (monthly on Cloudflare, plus "Email backup now").
+# resend.com > API Keys. Without your own domain on Resend, emails can only
+# go to the address you signed up to Resend with, so use that here.
+RESEND_API_KEY=
+BACKUP_EMAIL_TO=
+# Only with a domain verified on Resend, e.g. Anime Tracker <backup@yourdomain.com>
+BACKUP_EMAIL_FROM=

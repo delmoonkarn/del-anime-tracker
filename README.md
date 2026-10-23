@@ -67,4 +67,10 @@ data/                   SQLite database (gitignored)
 
 All data — schedule, collection, favorites, Discover cache, tags, preferences — lives in `data/anime-tracker.db`. Schema and migrations run automatically on first launch.
 
-To back up the database, request `/api/db-zip` from the running app.
+To back up, use the download button at the top right: **Download backup (.sql)** saves your data as a plain SQL file. To load one back, close the app's browser tab and run:
+
+```bash
+npm run restore -- anime-tracker-2026-11-01.sql
+```
+
+The current database is copied to `data/anime-tracker.before-restore-<time>.db` first. The cloud version can also email you a backup every month (see `.dev.vars.example`).

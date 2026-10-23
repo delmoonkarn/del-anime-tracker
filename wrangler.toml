@@ -9,6 +9,11 @@ name = "anime-tracker"
 main = "server/worker.ts"
 compatibility_date = "2026-10-01"
 
+# Monthly backup email: 00:00 UTC on the 1st = 07:00 in Thailand.
+# Needs the RESEND_API_KEY and BACKUP_EMAIL_TO secrets (see server/worker.ts).
+[triggers]
+crons = ["0 0 1 * *"]
+
 # The built frontend. /api/* goes to the Worker first; any other path that
 # isn't a file in dist/ gets index.html (single-page app).
 [assets]

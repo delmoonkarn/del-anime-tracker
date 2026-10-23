@@ -10,15 +10,15 @@
     "start": "node dist-server/index.cjs",
     "build-exe": "node scripts/build-exe.mjs",
     "cf:db:local": "wrangler d1 migrations apply anime-tracker --local",
-    "cf:seed:local": "node scripts/export-sql.mjs .wrangler/seed.sql && wrangler d1 execute anime-tracker --local --file .wrangler/seed.sql",
-    "cf:dev": "vite build && wrangler dev"
+    "cf:seed:local": "tsx scripts/export-sql.ts .wrangler/seed.sql && wrangler d1 execute anime-tracker --local --file .wrangler/seed.sql",
+    "cf:dev": "vite build && wrangler dev",
+    "restore": "tsx scripts/restore.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.3",
     "better-sqlite3": "^11.3.0",
     "exceljs": "^4.4.0",
     "hono": "^4.6.9",
-    "jszip": "^3.10.1",
     "lucide-react": "^0.408.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
