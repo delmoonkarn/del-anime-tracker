@@ -188,7 +188,11 @@ export type AppView =
   | 'h-favorites'
   | 'collection-favorites'
   | 'collection-interested'
-  | 'settings';
+  | 'settings-account'
+  | 'settings-backup';
+
+/** The Settings page's tabs. The PC version (no sign-in) only has Backup. */
+export type SettingsTab = 'account' | 'backup';
 
 /** H favorites live in their own DB table — separate from CollectionEntry. */
 export interface HFavoriteEntry extends DiscoverItem {

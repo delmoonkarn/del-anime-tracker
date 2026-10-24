@@ -48,8 +48,6 @@ interface Props {
   onAddAnime: () => void;
   onImport: (file: File) => void;
   onExport: () => void;
-  onImportJson: (file: File) => void;
-  onExportJson: () => void;
   onToggleFavorite?: (entry: AnimeEntry) => void;
   onToggleInterested?: (entry: AnimeEntry) => void;
   isFavorited?: (anilistId: number) => boolean;
@@ -58,29 +56,21 @@ interface Props {
   exporting?: boolean;
 }
 
+/** Excel import / export of the schedule. Full backups are in Settings. */
 function ImportExportMenu({
   onImport,
   onExport,
-  onImportJson,
-  onExportJson,
   importing,
   exporting,
 }: {
   onImport: (file: File) => void;
   onExport: () => void;
-  onImportJson: (file: File) => void;
-  onExportJson: () => void;
   importing?: boolean;
   exporting?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  // Sticky format choice — affects both Import (file-picker filter) and
-  // Export (which serializer runs). Defaults to xlsx as the more-common
-  // human-readable format.
-  const [format, setFormat] = useState<'xlsx' | 'json'>('xlsx');
   const ref = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const jsonFileRef = useRef<HTMLInputElement>(null);
   const busy = importing || exporting;
   const confirm = useConfirm();
 
@@ -112,23 +102,6 @@ function ImportExportMenu({
           if (ok) onImport(f);
         }}
       />
-      <input
-        ref={jsonFileRef}
-        type="file"
-        accept=".json,application/json"
-        className="hidden"
-        onChange={async (e) => {
-          const f = e.target.files?.[0];
-          e.target.value = '';
-          if (!f) return;
-          const ok = await confirm({
-            title: 'Restore from backup',
-            message: `Restore from "${f.name}"? Existing entries with matching IDs will be updated; new entries appended. Nothing is deleted.`,
-            confirmText: 'Restore',
-          });
-          if (ok) onImportJson(f);
-        }}
-      />
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -151,59 +124,32 @@ function ImportExportMenu({
 
       {open && (
         <div className={`absolute right-0 mt-2 w-44 ${MENU}`}>
-          {/* Format toggle — segmented control. Picks which input the
-              Import button opens AND which serializer Export runs. */}
-          <div className="flex gap-0.5 p-1 m-2 bg-zinc-950 rounded-lg">
-            {(['xlsx', 'json'] as const).map((opt) => (
-              <button
-                key={opt}
-                type="button"
-                onClick={() => setFormat(opt)}
-                className={`flex-1 px-2 py-1 text-[11px] font-semibold rounded transition-colors ${
-                  format === opt
-                    ? 'bg-indigo-500 text-white'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                .{opt}
-              </button>
-            ))}
-          </div>
           <button
             type="button"
             onClick={() => {
               setOpen(false);
-              (format === 'xlsx' ? fileRef : jsonFileRef).current?.click();
+              fileRef.current?.click();
             }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700 text-left border-t border-zinc-700"
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700 text-left"
           >
             <ArrowUpFromLine className="w-4 h-4" />
-            Import
+            Import .xlsx
           </button>
           <button
             type="button"
             onClick={async () => {
               setOpen(false);
-              if (format === 'xlsx') {
-                const ok = await confirm({
-                  title: 'Export workbook',
-                  message: 'Export all your tracker seasons to a .xlsx workbook?',
-                  confirmText: 'Export',
-                });
-                if (ok) onExport();
-              } else {
-                const ok = await confirm({
-                  title: 'Backup as JSON',
-                  message: 'Download a lossless JSON backup of every season?',
-                  confirmText: 'Download',
-                });
-                if (ok) onExportJson();
-              }
+              const ok = await confirm({
+                title: 'Export workbook',
+                message: 'Export all your tracker seasons to a .xlsx workbook?',
+                confirmText: 'Export',
+              });
+              if (ok) onExport();
             }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700 text-left border-t border-zinc-700"
           >
             <ArrowDownToLine className="w-4 h-4" />
-            Export
+            Export .xlsx
           </button>
         </div>
       )}
@@ -242,8 +188,6 @@ export function ScheduleGrid({
   onAddAnime,
   onImport,
   onExport,
-  onImportJson,
-  onExportJson,
   onToggleFavorite,
   onToggleInterested,
   isFavorited,
@@ -384,8 +328,6 @@ export function ScheduleGrid({
             <ImportExportMenu
               onImport={onImport}
               onExport={onExport}
-              onImportJson={onImportJson}
-              onExportJson={onExportJson}
               importing={importing}
               exporting={exporting}
             />

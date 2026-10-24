@@ -399,15 +399,12 @@ export async function exportCollection(items: CollectionEntry[]): Promise<void> 
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// --- JSON (raw DB) backups ----------------------------------------------
+// --- JSON collection backups -------------------------------------------
 //
-// Scope-bounded, lossless backups. Faster than the xlsx round-trip and
-// preserves every AnimeEntry / CollectionEntry field as-is (the xlsx format
-// only carries the visible columns). `kind` is a sanity marker so the
-// importer can reject mismatched files (e.g. a collection backup dropped
-// into the schedule menu).
+// Lossless: keeps every CollectionEntry field as-is (the xlsx format only
+// carries the visible columns). `kind` is a sanity marker so the importer can
+// reject other files.
 
-const SCHEDULE_KIND = 'anime-tracker-schedule';
 const COLLECTION_KIND = 'anime-tracker-collection';
 
 function downloadBlob(content: string, filename: string, mime: string): void {
@@ -422,23 +419,7 @@ function downloadBlob(content: string, filename: string, mime: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** `streamLinks` (all of a show's links) rides along with the backup; the
- *  rows' platform fields only hold the first one. */
-export function exportScheduleJson(seasons: Season[], streamLinks: StreamLinksMap = {}): void {
-  const payload = {
-    kind: SCHEDULE_KIND,
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    seasons,
-    streamLinks,
-  };
-  downloadBlob(
-    JSON.stringify(payload, null, 2),
-    `schedule_${new Date().toISOString().slice(0, 10)}.json`,
-    'application/json',
-  );
-}
-
+/** The shows' streaming links ride along with the backup. */
 export function exportCollectionJson(entries: CollectionEntry[], streamLinks: StreamLinksMap = {}): void {
   const payload = {
     kind: COLLECTION_KIND,

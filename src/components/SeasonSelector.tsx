@@ -8,7 +8,7 @@ import {
   Plus,
   Sparkles,
 } from 'lucide-react';
-import type { DiscoverVariant, Season } from '@/lib/types';
+import type { DiscoverVariant, Season, SettingsTab } from '@/lib/types';
 import { getCurrentSeasonName, seasonRank } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { MENU, MENU_ITEM } from '@/lib/ui';
@@ -28,7 +28,7 @@ interface Props {
   isScheduleActive: boolean;
   onWatchlist: () => void;
   isWatchlistActive: boolean;
-  onSettings: () => void;
+  onSettings: (tab: SettingsTab) => void;
 }
 
 export function SeasonSelector({

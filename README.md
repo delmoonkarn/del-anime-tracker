@@ -25,7 +25,7 @@ Personal seasonal anime tracker with AniList integration. Tracks watch progress,
 - Where to watch: your own streaming links per show (several per show) plus AniList's streaming links (cached, refreshed weekly), shown as channel icons on the posters
 - Favorites and Interested collections
 - Global AniList search from the header (press `/`)
-- Import/export of your schedule and collection (Excel or JSON)
+- Excel import/export of your schedule and collection
 - Backups as plain `.sql` files: download or restore from Settings, or get one emailed every month
 - Online version: one account (username + password), managed entirely from the app's Settings page
 
@@ -166,7 +166,7 @@ Each device stays signed in as long as you open the tracker at least once every 
 
 ### 9. Turn on backup email
 
-In the tracker: person icon (top right) → **Settings and backups** → **Backup email**.
+In the tracker: person icon (top right) → **Backup**, then the **Backup email** part of that page.
 
 1. Sign up at [resend.com](https://resend.com/signup).
 2. In Resend, open **API Keys** → **Create API Key**, choose **Sending access**, and copy the key (it starts with `re_`).
@@ -181,8 +181,8 @@ Backup email also turns on **Forgot password?** on the sign-in page.
 
 If you've been using the PC version:
 
-1. On the PC version: **Settings → Download backup**.
-2. Online: **Settings → Restore from backup**, and pick that file.
+1. On the PC version: gear icon → **Download backup**.
+2. Online: person icon → **Backup** → **Restore from backup**, and pick that file.
 
 ### Done
 
@@ -216,7 +216,7 @@ The first removes the Worker (the site), the second the database with all its da
 
 ## Using it: account, backups, restore
 
-Everything is in **Settings**: online it's under the person icon → **Settings and backups**; on your PC it's the gear icon.
+Everything is in **Settings**, which has two tabs. Online, the person icon (top right) opens either one: **Account** or **Backup**. On your PC there's no account, so the gear icon opens **Backup**.
 
 ### Account (online)
 
@@ -238,14 +238,14 @@ Then open the site straight away and create the account again (with the setup co
 
 ### Backups
 
-- **Download:** Settings → **Download backup** saves `anime-tracker-<date>.sql`.
+- **Download:** **Backup** tab → **Download backup** saves `anime-tracker-<date>.sql`.
 - **Email:** online, a backup is emailed on the 1st of every month. **Send a backup now** sends one any time; Settings shows how the last one went.
 - **What's in it:** seasons, shows, watch progress, collection, streaming links, H favorites and preferences. Not your account, the Resend key, or AniList data the app can fetch again.
 - **Format:** plain SQL text you can open in any text editor, about half a megabyte for years of tracking.
 
 ### Restore
 
-Settings → **Restore from backup**, then pick a `.sql` file.
+**Backup** tab → **Restore from backup**, then pick a `.sql` file.
 
 - It replaces your tracker data with the backup's. Your account and settings stay as they are.
 - It loads all of the file or, if anything goes wrong, none of it.

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Download, KeyRound, Loader2, LogOut, Mail, Upload } from 'lucide-react';
+import { DatabaseBackup, Download, KeyRound, Loader2, LogOut, Mail, Upload } from 'lucide-react';
 import { apiCall, authCall, useAuth } from '@/lib/auth';
 import { resumeSaving, stopSaving } from '@/lib/storage';
+import type { SettingsTab } from '@/lib/types';
 import { BTN, BTN_PRIMARY, EYEBROW, FIELD, SURFACE } from '@/lib/ui';
 import { useConfirm } from './ConfirmDialog';
 import { PageHeader } from './PageHeader';
@@ -62,17 +63,48 @@ function when(at: number): string {
   return new Date(at).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-/** Account and backup-email settings: everything that used to need the terminal. */
-export function SettingsPage() {
+const TABS = [
+  { key: 'account', label: 'Account', Icon: KeyRound },
+  { key: 'backup', label: 'Backup', Icon: DatabaseBackup },
+] as const;
+
+/** Account and backup settings, a tab each: everything that used to need the terminal. */
+export function SettingsPage({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsTab) => void }) {
   const auth = useAuth();
   const account = auth?.info.account;
+  // Without sign-in (the PC version) there's no account, so no tabs either.
+  const shown = account ? tab : 'backup';
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
-      <PageHeader title="Settings" description="Your account, and how your data gets backed up." />
-      <div className="flex flex-col gap-5">
-        {account && <AccountSection username={account.username} />}
+      <PageHeader
+        title="Settings"
+        description={account ? 'Your account, and how your data gets backed up.' : 'How your data gets backed up.'}
+      >
+        {account && (
+          <div role="tablist" className="flex gap-1 border-b border-zinc-800">
+            {TABS.map(({ key, label, Icon }) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={shown === key}
+                onClick={() => onTab(key)}
+                className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                  shown === key ? 'border-indigo-500 text-indigo-300' : 'border-transparent text-zinc-400 hover:text-zinc-100'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </PageHeader>
+      {shown === 'account' && account ? (
+        <AccountSection username={account.username} />
+      ) : (
         <BackupSection signedIn={!!account} />
-      </div>
+      )}
     </div>
   );
 }

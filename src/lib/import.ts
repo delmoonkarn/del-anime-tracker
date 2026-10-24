@@ -403,17 +403,10 @@ export async function importCollection(file: File): Promise<CollectionEntry[]> {
   return out;
 }
 
-// --- JSON (raw DB) restores ---------------------------------------------
+// --- JSON collection restores --------------------------------------------
 //
-// The JSON file is a lossless dump produced by exportScheduleJson /
-// exportCollectionJson. We validate the `kind` marker so a collection
-// backup can't be mistakenly applied to the schedule (and vice-versa).
-
-interface ScheduleBackup {
-  kind: 'anime-tracker-schedule';
-  version: number;
-  seasons: Season[];
-}
+// The JSON file is a lossless dump produced by exportCollectionJson. The
+// `kind` marker is checked so any other JSON file is turned away.
 
 interface CollectionBackup {
   kind: 'anime-tracker-collection';
@@ -439,25 +432,7 @@ async function readJson(file: File): Promise<unknown> {
   }
 }
 
-export async function importScheduleJson(file: File): Promise<Season[]> {
-  const raw = await readJson(file);
-  if (
-    !raw ||
-    typeof raw !== 'object' ||
-    (raw as Record<string, unknown>).kind !== 'anime-tracker-schedule'
-  ) {
-    throw new JsonImportError(
-      'File doesn’t look like a schedule backup. Use the collection menu for collection backups.',
-    );
-  }
-  const parsed = raw as ScheduleBackup;
-  if (!Array.isArray(parsed.seasons)) {
-    throw new JsonImportError('Backup is missing the `seasons` array.');
-  }
-  return parsed.seasons;
-}
-
-/** The `streamLinks` map saved in a schedule / collection JSON backup
+/** The `streamLinks` map saved in a collection JSON backup
  *  (empty for backups made before links were included). */
 export async function readBackupLinks(file: File): Promise<StreamLinksMap> {
   try {
@@ -489,7 +464,7 @@ export async function importCollectionJson(
     (raw as Record<string, unknown>).kind !== 'anime-tracker-collection'
   ) {
     throw new JsonImportError(
-      'File doesn’t look like a collection backup. Use the schedule menu for schedule backups.',
+      'File doesn’t look like a collection backup exported from this app.',
     );
   }
   const parsed = raw as CollectionBackup;

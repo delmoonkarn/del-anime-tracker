@@ -1,14 +1,16 @@
 import { useCallback, useRef, useState } from 'react';
-import { LogOut, Settings, UserRound } from 'lucide-react';
+import { DatabaseBackup, KeyRound, LogOut, Settings, UserRound } from 'lucide-react';
 import { authCall, useAuth } from '@/lib/auth';
 import { useClickOutside } from '@/hooks/useClickOutside';
+import type { SettingsTab } from '@/lib/types';
 import { BTN_ICON, EYEBROW, MENU, MENU_ITEM } from '@/lib/ui';
 
 /**
- * Header button for the signed-in account: Settings (backups live there) and
- * sign out. With sign-in off, as on the local app, it's a plain Settings gear.
+ * Header button for the signed-in account: the Account and Backup tabs of
+ * Settings, and sign out. With sign-in off, as on the local app, it's a gear
+ * that opens Backup.
  */
-export function AccountMenu({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function AccountMenu({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab) => void }) {
   const auth = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -18,7 +20,7 @@ export function AccountMenu({ onOpenSettings }: { onOpenSettings: () => void }) 
   const account = auth?.info.account;
   if (!auth || !account) {
     return (
-      <button type="button" onClick={onOpenSettings} className={`${BTN_ICON} shrink-0`} title="Settings and backups" aria-label="Settings">
+      <button type="button" onClick={() => onOpenSettings('backup')} className={`${BTN_ICON} shrink-0`} title="Backup" aria-label="Settings">
         <Settings className="h-4 w-4" />
       </button>
     );
@@ -47,17 +49,25 @@ export function AccountMenu({ onOpenSettings }: { onOpenSettings: () => void }) 
             <div className={EYEBROW}>Signed in as</div>
             <div className="truncate text-sm font-medium text-zinc-100">{account.username}</div>
           </div>
-          <button
-            type="button"
-            className={`${MENU_ITEM} text-sm text-zinc-200`}
-            onClick={() => {
-              setOpen(false);
-              onOpenSettings();
-            }}
-          >
-            <Settings className="h-4 w-4 text-zinc-400" />
-            Settings and backups
-          </button>
+          {(
+            [
+              { tab: 'account', label: 'Account', Icon: KeyRound },
+              { tab: 'backup', label: 'Backup', Icon: DatabaseBackup },
+            ] as const
+          ).map(({ tab, label, Icon }) => (
+            <button
+              key={tab}
+              type="button"
+              className={`${MENU_ITEM} text-sm text-zinc-200`}
+              onClick={() => {
+                setOpen(false);
+                onOpenSettings(tab);
+              }}
+            >
+              <Icon className="h-4 w-4 text-zinc-400" />
+              {label}
+            </button>
+          ))}
           <button type="button" className={`${MENU_ITEM} text-sm text-zinc-200`} onClick={() => void signOut()}>
             <LogOut className="h-4 w-4 text-zinc-400" />
             Sign out

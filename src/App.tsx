@@ -31,6 +31,7 @@ import type {
   HFavoriteEntry,
   ScheduleProgress,
   Season,
+  SettingsTab,
   StreamLink,
   StreamLinksMap,
 } from '@/lib/types';
@@ -588,6 +589,8 @@ export function App() {
     navigate(next, null);
   };
 
+  const openSettings = (tab: SettingsTab) => goTo(tab === 'account' ? 'settings-account' : 'settings-backup');
+
   const handleSelectSeason = (id: string) => {
     setState((prev) => (prev ? { ...prev, activeSeasonId: id } : prev));
     goTo('schedule');
@@ -819,7 +822,7 @@ export function App() {
   };
 
   // Streaming links per show: the saved list, plus any single platform URL
-  // still sitting on a schedule row (xlsx / JSON imports bring those in) that
+  // still sitting on a schedule row (xlsx imports bring those in) that
   // isn't in the list yet. Editing a show's links saves the merged list and
   // clears those row fields, so a removed link stays removed.
   const linksByShow = new Map<number, StreamLink[]>();
@@ -864,7 +867,7 @@ export function App() {
     });
   };
 
-  /** Saved links for the given shows, for a JSON backup. */
+  /** Saved links for the given shows, for a collection JSON backup. */
   const linksFor = (ids: number[]): StreamLinksMap => {
     const out: StreamLinksMap = {};
     for (const id of new Set(ids)) {
@@ -881,7 +884,7 @@ export function App() {
     setStreamLinks((prev) => ({ ...prev, ...map }));
   };
 
-  /** xlsx / JSON exports still carry one link per row: fill a bound row's
+  /** The xlsx export carries one link per row: fill a bound row's
    *  platform columns from the show's first saved link. */
   const seasonsForExport = (): Season[] =>
     state.seasons.map((s) => ({
@@ -1225,109 +1228,6 @@ export function App() {
     }
   };
 
-  /** Restore from a `.json` schedule backup. Differs from xlsx import:
-   *  matches by anilistId (or trimmed lowercase title) → REPLACES the
-   *  existing entry instead of skipping it. Brand-new seasons / entries are
-   *  appended. Nothing is deleted. */
-  const handleScheduleJsonImport = async (file: File) => {
-    if (importing) return;
-    setImporting(true);
-    try {
-      const { importScheduleJson, readBackupLinks, JsonImportError } = await import('@/lib/import');
-      let imported: Season[];
-      try {
-        imported = await importScheduleJson(file);
-        restoreBackupLinks(await readBackupLinks(file));
-      } catch (err) {
-        if (err instanceof JsonImportError) {
-          await confirm({
-            title: 'Import failed',
-            message: err.message,
-            alert: true,
-            kind: 'danger',
-          });
-          return;
-        }
-        throw err;
-      }
-      if (imported.length === 0) {
-        await confirm({
-          title: 'Nothing to import',
-          message: 'The backup contained no seasons.',
-          alert: true,
-          kind: 'warning',
-        });
-        return;
-      }
-      let added = 0;
-      let updated = 0;
-      setState((prev) => {
-        if (!prev) return prev;
-        let mergedSeasons = [...prev.seasons];
-        for (const importSeason of imported) {
-          const existingIdx = mergedSeasons.findIndex(
-            (s) => s.name.toLowerCase() === importSeason.name.toLowerCase(),
-          );
-          if (existingIdx === -1) {
-            mergedSeasons.push(importSeason);
-            added += importSeason.animes.length;
-            continue;
-          }
-          const target = mergedSeasons[existingIdx];
-          const keyOf = (a: AnimeEntry) =>
-            a.anilistId > 0
-              ? `id:${a.anilistId}`
-              : `t:${a.title.trim().toLowerCase()}`;
-          const byKey = new Map<string, AnimeEntry>();
-          for (const a of target.animes) byKey.set(keyOf(a), a);
-          for (const a of importSeason.animes) {
-            const k = keyOf(a);
-            if (byKey.has(k)) {
-              // Replace — keep the existing id so other references stay
-              // stable, but adopt every other field from the backup.
-              const old = byKey.get(k)!;
-              byKey.set(k, { ...a, id: old.id });
-              updated++;
-            } else {
-              byKey.set(k, a);
-              added++;
-            }
-          }
-          mergedSeasons = mergedSeasons.map((s, i) =>
-            i === existingIdx ? { ...s, animes: Array.from(byKey.values()) } : s,
-          );
-        }
-        return {
-          seasons: mergedSeasons,
-          activeSeasonId: prev.activeSeasonId ?? mergedSeasons[0]?.id ?? null,
-        };
-      });
-      await confirm({
-        title: 'Schedule restored',
-        message: `Added ${added} entr${added === 1 ? 'y' : 'ies'}${
-          updated > 0 ? ` · updated ${updated}` : ''
-        }.`,
-        alert: true,
-      });
-    } catch (err) {
-      console.error('Schedule JSON import failed', err);
-      await confirm({
-        title: 'Import failed',
-        message: 'See the browser console for details.',
-        alert: true,
-        kind: 'danger',
-      });
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const handleScheduleJsonExport = async () => {
-    if (!state) return;
-    const { exportScheduleJson } = await import('@/lib/export');
-    exportScheduleJson(seasonsForExport(), linksFor(state.seasons.flatMap((s) => s.animes.map((a) => a.anilistId))));
-  };
-
   // Collection import — merges into the existing collection by (anilistId, section)
   const handleCollectionImport = async (file: File) => {
     if (importingCollection) return;
@@ -1490,7 +1390,7 @@ export function App() {
         isScheduleActive={detailId === null && view === 'schedule'}
         onWatchlist={() => goTo('watchlist')}
         isWatchlistActive={detailId === null && view === 'watchlist'}
-        onSettings={() => goTo('settings')}
+        onSettings={openSettings}
       />
 
       {detailId !== null && (
@@ -1514,8 +1414,8 @@ export function App() {
       )}
 
       <div className={detailId !== null ? 'hidden' : undefined}>
-      {view === 'settings' ? (
-        <SettingsPage />
+      {view === 'settings-account' || view === 'settings-backup' ? (
+        <SettingsPage tab={view === 'settings-account' ? 'account' : 'backup'} onTab={openSettings} />
       ) : view === 'watchlist' ? (
         <WatchlistPage
           items={watchItems}
@@ -1614,8 +1514,6 @@ export function App() {
           onAddAnime={openAdd}
           onImport={handleImport}
           onExport={handleExport}
-          onImportJson={handleScheduleJsonImport}
-          onExportJson={handleScheduleJsonExport}
           onToggleFavorite={toggleFavoriteFromSchedule}
           onToggleInterested={toggleInterestedFromSchedule}
           isFavorited={isFavorited}
