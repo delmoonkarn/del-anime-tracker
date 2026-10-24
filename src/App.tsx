@@ -12,7 +12,8 @@ import { CollectionPage } from '@/components/CollectionPage';
 import { WatchlistPage, type WatchItem } from '@/components/WatchlistPage';
 import { SettingsPage } from '@/components/SettingsPage';
 import { AnimeDetailPage } from '@/components/AnimeDetailPage';
-import { NavProvider, entryLink } from '@/lib/nav';
+import { AppLink, NavProvider, entryLink } from '@/lib/nav';
+import { detailPath, parsePath, pathFor, seasonSlug } from '@/lib/routes';
 import { brandFor, buildBrandIndex, toAnilistLinks } from '@/lib/streamLinks';
 import { useConfirm } from '@/components/ConfirmDialog';
 import type {
@@ -37,6 +38,10 @@ import type {
 } from '@/lib/types';
 import type { ImportProgress } from '@/lib/import';
 import {
+  hasUnsavedEdits,
+  onOtherTabSaved,
+  SYNCED_KEYS,
+  type SyncedKey,
   loadCollection,
   loadDiscoverCache,
   loadHFavorites,
@@ -57,16 +62,19 @@ import {
   deriveDayTimeFromAiringAt,
   getCurrentAnimeSeasonRef,
   newId,
+  seasonRank,
   tagsMatch,
 } from '@/lib/utils';
-import { DIALOG, DIALOG_BACKDROP } from '@/lib/ui';
+import { BTN, BTN_PRIMARY, DIALOG, DIALOG_BACKDROP } from '@/lib/ui';
 
-/** One browser-history entry: which page, which detail (if any), and the
- *  scroll position it was left at. `idx` counts entries within this app. */
+/** One browser-history entry: which page, which detail (if any), the
+ *  schedule's season and the scroll position it was left at. `idx` counts
+ *  entries within this app. Each entry has the page's address (lib/routes). */
 interface NavEntry {
   view: AppView;
   detail: number | null;
   idx: number;
+  season?: string | null;
   scroll?: number;
 }
 
@@ -103,7 +111,11 @@ export function App() {
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
-  const [view, setView] = useState<AppView>('schedule');
+  // The page the address asked for when this tab opened (lib/routes).
+  const [initialRoute] = useState(() => parsePath(window.location.pathname));
+  const [view, setView] = useState<AppView>(initialRoute.view);
+  // Opening an H address directly shows an 18+ gate first.
+  const [hAllowed, setHAllowed] = useState(initialRoute.view !== 'discover-h' && initialRoute.view !== 'h-favorites');
   const [collection, setCollection] = useState<CollectionEntry[]>([]);
   const [hFavorites, setHFavorites] = useState<HFavoriteEntry[]>([]);
   const [discoverCache, setDiscoverCache] = useState<DiscoverCache>({ entries: [] });
@@ -116,7 +128,7 @@ export function App() {
   const [importingCollection, setImportingCollection] = useState(false);
   /** AniList id of the open detail page. The page underneath stays mounted
    *  (hidden) so Explore filters and scroll survive a trip to a detail. */
-  const [detailId, setDetailId] = useState<number | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(initialRoute.detail);
   /** Position of the current entry in this app's own history (0 = the
    *  entry the app booted on), so Back never walks out of the app. */
   const navIdx = useRef(0);
@@ -198,17 +210,18 @@ export function App() {
           loadAnilistLinks(),
           loadLinkSources(),
         ]);
-      // Always boot into the current calendar season's schedule. If a season
-      // with that name exists in storage, switch the active season to it; if
-      // not, leave whatever was last active alone (user has nothing matching).
+      // The schedule's season comes from the address (/schedule/winter-2026);
+      // otherwise it's the calendar's current season, or the newest one.
       let initial = loaded ?? defaultState();
+      const bySlug = initialRoute.season
+        ? initial.seasons.find((s) => seasonSlug(s.name) === initialRoute.season)
+        : undefined;
       const currentName = discoverDefaultRef.name.toLowerCase();
-      const currentMatch = initial.seasons.find(
-        (s) => s.name.trim().toLowerCase() === currentName,
-      );
-      if (currentMatch && currentMatch.id !== initial.activeSeasonId) {
-        initial = { ...initial, activeSeasonId: currentMatch.id };
-      }
+      const current = initial.seasons.find((s) => s.name.trim().toLowerCase() === currentName);
+      const newest = [...initial.seasons].sort(
+        (a, b) => (seasonRank(b.name) ?? -1) - (seasonRank(a.name) ?? -1) || b.createdAt - a.createdAt,
+      )[0];
+      initial = { ...initial, activeSeasonId: (bySlug ?? current ?? newest)?.id ?? null };
       setState(initial);
       setCollection(loadedCollection);
       setDiscoverCache(loadedDiscover);
@@ -473,27 +486,54 @@ export function App() {
   // page's own Back) always land on the page you were really on, at the
   // scroll position you left it.
   useEffect(() => {
-    window.history.replaceState({ view: 'schedule', detail: null, idx: 0 } satisfies NavEntry, '');
+    window.history.replaceState(
+      { view: initialRoute.view, detail: initialRoute.detail, idx: 0 } satisfies NavEntry,
+      '',
+    );
     const onPop = (e: PopStateEvent) => {
       const entry = e.state as NavEntry | null;
       if (!entry || typeof entry.idx !== 'number') return;
       navIdx.current = entry.idx;
       setView(entry.view);
       setDetailId(entry.detail);
+      const season = entry.season;
+      if (season) {
+        setState((prev) =>
+          prev && prev.activeSeasonId !== season && prev.seasons.some((s) => s.id === season)
+            ? { ...prev, activeSeasonId: season }
+            : prev,
+        );
+      }
       requestAnimationFrame(() => window.scrollTo(0, entry.scroll ?? 0));
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  const navigate = (nextView: AppView, nextDetail: number | null) => {
+  /** A page's address. The schedule's depends on its season: the calendar's
+   *  current season is plain "/". */
+  const pathOf = (v: AppView, detail: number | null, seasonId: string | null) => {
+    if (detail !== null) return detailPath(detail);
+    const name = state?.seasons.find((s) => s.id === seasonId)?.name;
+    const isCurrent = !name || name.trim().toLowerCase() === discoverDefaultRef.name.toLowerCase();
+    return pathFor(v, v === 'schedule' && name && !isCurrent ? seasonSlug(name) : null);
+  };
+
+  /** Opens a page as a new history entry; `seasonId` also switches the schedule's season. */
+  const navigate = (nextView: AppView, nextDetail: number | null, seasonId?: string) => {
     // Remember where we were on the entry we're leaving.
     const current = window.history.state as NavEntry | null;
     if (current && typeof current.idx === 'number') {
       window.history.replaceState({ ...current, scroll: window.scrollY }, '');
     }
+    const season = seasonId ?? state?.activeSeasonId ?? null;
     navIdx.current += 1;
-    window.history.pushState({ view: nextView, detail: nextDetail, idx: navIdx.current } satisfies NavEntry, '');
+    window.history.pushState(
+      { view: nextView, detail: nextDetail, idx: navIdx.current, season } satisfies NavEntry,
+      '',
+      pathOf(nextView, nextDetail, season),
+    );
+    if (seasonId) setState((prev) => (prev ? { ...prev, activeSeasonId: seasonId } : prev));
     setView(nextView);
     setDetailId(nextDetail);
     window.scrollTo(0, 0);
@@ -545,10 +585,75 @@ export function App() {
     saveAnilistLinks(anilistLinks);
   }, [anilistLinks, hydrated]);
 
+  // Open tabs stay in step (lib/storage): a list another tab changed, and
+  // every list when you come back to this tab, is reloaded from the server.
+  // A list with an edit still on its way out is left alone, so the edit is
+  // never thrown away; it's checked again once the reload arrives.
+  useEffect(() => {
+    if (!hydrated) return;
+    const reload = async (key: SyncedKey) => {
+      if (hasUnsavedEdits(key)) return;
+      switch (key) {
+        case 'state': {
+          const loaded = await loadState();
+          if (!loaded || hasUnsavedEdits(key)) return;
+          setState((prev) => ({
+            seasons: loaded.seasons,
+            activeSeasonId:
+              prev && loaded.seasons.some((s) => s.id === prev.activeSeasonId)
+                ? prev.activeSeasonId
+                : (loaded.seasons[0]?.id ?? null),
+          }));
+          return;
+        }
+        case 'collection': {
+          const loaded = await loadCollection();
+          if (!hasUnsavedEdits(key)) setCollection(loaded);
+          return;
+        }
+        case 'h-favorites': {
+          const loaded = await loadHFavorites();
+          if (!hasUnsavedEdits(key)) setHFavorites(loaded);
+          return;
+        }
+        case 'stream-links': {
+          const loaded = await loadStreamLinks();
+          if (!hasUnsavedEdits(key)) setStreamLinks(loaded);
+          return;
+        }
+      }
+    };
+    const stop = onOtherTabSaved((key) => void reload(key));
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') for (const key of SYNCED_KEYS) void reload(key);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [hydrated]);
+
   const activeSeason: Season | null = useMemo(() => {
     if (!state) return null;
     return state.seasons.find((s) => s.id === state.activeSeasonId) ?? state.seasons[0] ?? null;
   }, [state]);
+
+  // Keeps the address and the entry's season in step with what's shown.
+  // Page changes push their own entry (navigate); this covers the first load
+  // and in-place changes like creating or renaming a season.
+  useEffect(() => {
+    if (!state) return;
+    const path = pathOf(view, detailId, state.activeSeasonId);
+    const entry = window.history.state as NavEntry | null;
+    if (window.location.pathname !== path || entry?.season !== state.activeSeasonId) {
+      window.history.replaceState(
+        { ...(entry ?? { view, detail: detailId, idx: navIdx.current }), season: state.activeSeasonId },
+        '',
+        path + window.location.search,
+      );
+    }
+  }, [state, view, detailId]);
 
   if (!state) {
     return (
@@ -591,25 +696,21 @@ export function App() {
 
   const openSettings = (tab: SettingsTab) => goTo(tab === 'account' ? 'settings-account' : 'settings-backup');
 
+  /** Opens a season's schedule as its own history entry, so Back returns to the last one. */
   const handleSelectSeason = (id: string) => {
-    setState((prev) => (prev ? { ...prev, activeSeasonId: id } : prev));
-    goTo('schedule');
+    if (view === 'schedule' && detailId === null && id === state.activeSeasonId) return;
+    navigate('schedule', null, id);
   };
 
   /** Jumps to the schedule view, switching to the calendar's current season
    *  (e.g. "Spring 2026") if one exists in the tracker. */
   const handleJumpHome = () => {
-    goTo('schedule');
-    setState((prev) => {
-      if (!prev) return prev;
-      const target = prev.seasons.find(
-        (s) => s.name.trim().toLowerCase() === discoverDefaultRef.name.toLowerCase(),
-      );
-      if (target && target.id !== prev.activeSeasonId) {
-        return { ...prev, activeSeasonId: target.id };
-      }
-      return prev;
-    });
+    const current = state.seasons.find(
+      (s) => s.name.trim().toLowerCase() === discoverDefaultRef.name.toLowerCase(),
+    );
+    const target = current?.id ?? state.activeSeasonId;
+    if (target) handleSelectSeason(target);
+    else goTo('schedule');
   };
 
   /** Adds an item to the named tracker season; creates the season if missing. */
@@ -1384,6 +1485,8 @@ export function App() {
         onManage={() => setManageOpen(true)}
         onJumpHome={handleJumpHome}
         onDiscover={(variant) => {
+          // The header asks the 18+ question before it gets here.
+          if (variant === 'h') setHAllowed(true);
           goTo(
             variant === 'season'
               ? 'discover-season'
@@ -1465,6 +1568,19 @@ export function App() {
             });
           }}
         />
+      ) : (view === 'discover-h' || view === 'h-favorites') && !hAllowed ? (
+        <div className="mx-auto max-w-md px-4 py-24 text-center">
+          <h1 className="mb-1 text-lg font-semibold">Enter H section</h1>
+          <p className="mb-5 text-sm text-zinc-400">This section contains adult content (18+). Continue?</p>
+          <div className="flex justify-center gap-2">
+            <AppLink href="/" onNavigate={handleJumpHome} className={BTN}>
+              Back to schedule
+            </AppLink>
+            <button type="button" className={BTN_PRIMARY} onClick={() => setHAllowed(true)}>
+              Continue
+            </button>
+          </div>
+        </div>
       ) : view === 'discover-h' ? (
         <HDiscoverPage
           isFavoritedH={isHFavorited}

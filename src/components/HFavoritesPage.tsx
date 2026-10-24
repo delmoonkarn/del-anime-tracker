@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { ArrowLeft, Flame, Heart, Search, X } from 'lucide-react';
 import type { CollectionSort, HFavoriteEntry, ScheduleProgress } from '@/lib/types';
-import { anilistUrl } from '@/lib/nav';
+import { anilistUrl, AppLink } from '@/lib/nav';
+import { pathFor } from '@/lib/routes';
 import { BTN, FIELD } from '@/lib/ui';
 import { compareReleaseDate } from '@/lib/utils';
 import { useIsPhone } from '@/hooks/useIsPhone';
@@ -74,10 +75,10 @@ export function HFavoritesPage({ items, onRemove, onUpdateProgress, onSetUserSco
         count={items.length}
         description="Kept apart from your Collection and Watchlist."
         actions={
-          <button type="button" onClick={onBack} className={BTN}>
+          <AppLink href={pathFor('discover-h')} onNavigate={onBack} className={BTN}>
             <ArrowLeft className="h-4 w-4" />
             Back to H
-          </button>
+          </AppLink>
         }
       >
         {items.length > 0 && (

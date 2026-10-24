@@ -121,8 +121,8 @@ export function createApp<E extends Env = Env>(
       return c.text('Invalid JSON', 400);
     }
     try {
-      await writeByKey(dbFor(c), key, value);
-      return c.text('OK');
+      // Rows changed: other open tabs reload only when something did.
+      return c.json({ changed: await writeByKey(dbFor(c), key, value) });
     } catch (err) {
       console.error(`[api/storage] write ${key} failed`, err);
       return c.text('Write failed', 500);

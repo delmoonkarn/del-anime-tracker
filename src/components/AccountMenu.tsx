@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { DatabaseBackup, KeyRound, LogOut, Settings, UserRound } from 'lucide-react';
 import { authCall, useAuth } from '@/lib/auth';
+import { AppLink } from '@/lib/nav';
+import { pathFor } from '@/lib/routes';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import type { SettingsTab } from '@/lib/types';
 import { BTN_ICON, EYEBROW, MENU, MENU_ITEM } from '@/lib/ui';
@@ -20,9 +22,9 @@ export function AccountMenu({ onOpenSettings }: { onOpenSettings: (tab: Settings
   const account = auth?.info.account;
   if (!auth || !account) {
     return (
-      <button type="button" onClick={() => onOpenSettings('backup')} className={`${BTN_ICON} shrink-0`} title="Backup" aria-label="Settings">
+      <AppLink href={pathFor('settings-backup')} onNavigate={() => onOpenSettings('backup')} className={`${BTN_ICON} shrink-0`} title="Backup" aria-label="Settings">
         <Settings className="h-4 w-4" />
-      </button>
+      </AppLink>
     );
   }
 
@@ -55,18 +57,18 @@ export function AccountMenu({ onOpenSettings }: { onOpenSettings: (tab: Settings
               { tab: 'backup', label: 'Backup', Icon: DatabaseBackup },
             ] as const
           ).map(({ tab, label, Icon }) => (
-            <button
+            <AppLink
               key={tab}
-              type="button"
+              href={pathFor(tab === 'account' ? 'settings-account' : 'settings-backup')}
               className={`${MENU_ITEM} text-sm text-zinc-200`}
-              onClick={() => {
+              onNavigate={() => {
                 setOpen(false);
                 onOpenSettings(tab);
               }}
             >
               <Icon className="h-4 w-4 text-zinc-400" />
               {label}
-            </button>
+            </AppLink>
           ))}
           <button type="button" className={`${MENU_ITEM} text-sm text-zinc-200`} onClick={() => void signOut()}>
             <LogOut className="h-4 w-4 text-zinc-400" />

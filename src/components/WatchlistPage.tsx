@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Clock, Compass, Heart, Loader2, MoreVertical, Pencil, Tv } from 'lucide-react';
 import type { AnilistMedia, DiscoverItem, ScheduleProgress, WatchStatus } from '@/lib/types';
-import { useOpenDetail, useRememberAnilistLinks, useWatchLinks } from '@/lib/nav';
+import { ShowLink, useRememberAnilistLinks, useWatchLinks } from '@/lib/nav';
 import { toAnilistLinks } from '@/lib/streamLinks';
 import { AIRING_STATUS_LABEL, BTN_ICON, BTN_PRIMARY, MENU, SURFACE, pillClass } from '@/lib/ui';
 import { formatNextAiring, nextProgressOnDec, nextProgressOnInc, nextProgressOnSetStatus } from '@/lib/utils';
@@ -367,7 +367,6 @@ function WatchingEntry({
   onEdit?: () => void;
 }) {
   const { item, media, total, aired, next } = row;
-  const openDetail = useOpenDetail();
   const links = useWatchLinks(item.anilistId);
   const watched = progress?.episodesWatched ?? 0;
   const status = progress?.watchStatus;
@@ -483,9 +482,9 @@ function WatchingEntry({
 
   if (layout === 'row') {
     const open = (className: string, children: React.ReactNode, label?: string) => (
-      <button type="button" onClick={() => openDetail(item.anilistId)} className={className} aria-label={label} title={item.title}>
+      <ShowLink anilistId={item.anilistId} className={className} label={label} title={item.title}>
         {children}
-      </button>
+      </ShowLink>
     );
     return (
       <ShowRow
@@ -528,26 +527,20 @@ function WatchingEntry({
       >
         {/* Only the poster is clipped, so menus can spill past the card. */}
         <div className="relative overflow-hidden rounded-t-xl">
-          <button
-            type="button"
-            onClick={() => openDetail(item.anilistId)}
+          <ShowLink
+            anilistId={item.anilistId}
             className="block aspect-[2/3] w-full overflow-hidden bg-zinc-800"
-            aria-label={`Open ${item.title}`}
+            label={`Open ${item.title}`}
           >
             {poster}
-          </button>
+          </ShowLink>
           <ServiceLinks links={links} title={item.title} className="absolute bottom-2 left-2" />
         </div>
         <div className="flex flex-1 flex-col gap-1.5 p-3">
           <h3 className="text-sm font-semibold leading-snug">
-            <button
-              type="button"
-              onClick={() => openDetail(item.anilistId)}
-              className="line-clamp-2 text-left hover:text-indigo-300"
-              title={item.title}
-            >
+            <ShowLink anilistId={item.anilistId} className="line-clamp-2 text-left hover:text-indigo-300" title={item.title}>
               {item.title}
-            </button>
+            </ShowLink>
           </h3>
           <p className="flex items-center gap-1.5 text-xs text-zinc-300">
             {airTime && (
@@ -572,24 +565,18 @@ function WatchingEntry({
 
   return (
     <div className={`${SURFACE} flex flex-wrap items-center gap-3 p-3 transition-colors hover:border-zinc-700 sm:flex-nowrap sm:gap-4`}>
-      <button
-        type="button"
-        onClick={() => openDetail(item.anilistId)}
+      <ShowLink
+        anilistId={item.anilistId}
         className="h-20 w-14 shrink-0 overflow-hidden rounded-md bg-zinc-800"
-        aria-label={`Open ${item.title}`}
+        label={`Open ${item.title}`}
       >
         {poster}
-      </button>
+      </ShowLink>
 
       <div className="flex min-w-0 flex-1 basis-40 flex-col gap-1">
-        <button
-          type="button"
-          onClick={() => openDetail(item.anilistId)}
-          className="truncate text-left font-semibold hover:text-indigo-300"
-          title={item.title}
-        >
+        <ShowLink anilistId={item.anilistId} className="truncate text-left font-semibold hover:text-indigo-300" title={item.title}>
           {item.title}
-        </button>
+        </ShowLink>
         <p className="text-xs text-zinc-300 sm:text-sm">
           {airedLine}
           {nextLine && (

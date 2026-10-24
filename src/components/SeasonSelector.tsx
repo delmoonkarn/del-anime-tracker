@@ -12,6 +12,8 @@ import type { DiscoverVariant, Season, SettingsTab } from '@/lib/types';
 import { getCurrentSeasonName, seasonRank } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { MENU, MENU_ITEM } from '@/lib/ui';
+import { AppLink } from '@/lib/nav';
+import { pathFor, seasonSlug } from '@/lib/routes';
 import { AccountMenu } from './AccountMenu';
 import { useConfirm } from './ConfirmDialog';
 import { GlobalSearch } from './GlobalSearch';
@@ -156,16 +158,16 @@ export function SeasonSelector({
           {mobileOpen && (
             <ul className={`absolute left-0 mt-2 flex w-52 flex-col gap-0.5 ${MENU} p-1.5`}>
               {[
-                { label: 'Schedule', active: isScheduleActive, go: onJumpHome },
-                { label: 'Explore', active: activeDiscoverVariant === 'season', go: () => onDiscover('season') },
-                { label: 'Watchlist', active: isWatchlistActive, go: onWatchlist },
-                { label: 'Collection', active: activeDiscoverVariant === 'collection', go: () => onDiscover('collection') },
-                { label: 'H', active: activeDiscoverVariant === 'h', go: openH },
+                { label: 'Schedule', href: '/', active: isScheduleActive, go: onJumpHome },
+                { label: 'Explore', href: pathFor('discover-season'), active: activeDiscoverVariant === 'season', go: () => onDiscover('season') },
+                { label: 'Watchlist', href: pathFor('watchlist'), active: isWatchlistActive, go: onWatchlist },
+                { label: 'Collection', href: pathFor('collection-favorites'), active: activeDiscoverVariant === 'collection', go: () => onDiscover('collection') },
+                { label: 'H', href: pathFor('discover-h'), active: activeDiscoverVariant === 'h', go: openH },
               ].map((n) => (
                 <li key={n.label}>
-                  <button
-                    type="button"
-                    onClick={() => {
+                  <AppLink
+                    href={n.href}
+                    onNavigate={() => {
                       setMobileOpen(false);
                       void n.go();
                     }}
@@ -174,16 +176,16 @@ export function SeasonSelector({
                     }`}
                   >
                     {n.label}
-                  </button>
+                  </AppLink>
                 </li>
               ))}
             </ul>
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={onJumpHome}
+        <AppLink
+          href="/"
+          onNavigate={onJumpHome}
           className="flex items-center gap-2 shrink-0 group"
           title="Go to current season's schedule"
         >
@@ -195,16 +197,16 @@ export function SeasonSelector({
           <span className="hidden text-[0.95rem] font-bold tracking-tight lg:inline group-hover:text-indigo-300 transition-colors">
             Anime Tracker
           </span>
-        </button>
+        </AppLink>
 
         <nav aria-label="Main" className="ml-1 flex min-w-0 items-center gap-1">
           {/* Schedule: the season name jumps to the current schedule, the
               chevron opens the season list. */}
           <div ref={wrapperRef} className="relative min-w-0">
             <div className={`flex min-w-0 items-stretch overflow-hidden ${navTone(isScheduleActive)}`}>
-              <button
-                type="button"
-                onClick={onJumpHome}
+              <AppLink
+                href="/"
+                onNavigate={onJumpHome}
                 className="flex min-w-0 items-center gap-1.5 py-1.5 pl-3 pr-1.5"
                 title="Go to current season's schedule"
               >
@@ -215,7 +217,7 @@ export function SeasonSelector({
                 {activeSeason && (
                   <span className="hidden text-xs opacity-60 shrink-0 sm:inline">{activeSeason.animes.length}</span>
                 )}
-              </button>
+              </AppLink>
               <button
                 type="button"
                 onClick={() => setOpen((o) => !o)}
@@ -235,9 +237,9 @@ export function SeasonSelector({
                     const current = isCurrent(s.name);
                     return (
                       <li key={s.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
+                        <AppLink
+                          href={pathFor('schedule', current ? null : seasonSlug(s.name))}
+                          onNavigate={() => {
                             onSelect(s.id);
                             setOpen(false);
                           }}
@@ -250,7 +252,7 @@ export function SeasonSelector({
                             {current && <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />}
                           </span>
                           <span className="text-xs text-zinc-500 shrink-0">{s.animes.length}</span>
-                        </button>
+                        </AppLink>
                       </li>
                     );
                   })}
@@ -308,9 +310,13 @@ export function SeasonSelector({
           {/* Explore: main click opens Explore, the chevron offers H. */}
           <div ref={discoverRef} className="relative hidden shrink-0 md:block">
             <div className={`flex items-stretch ${navTone(exploreActive)}`}>
-              <button type="button" onClick={() => onDiscover('season')} className="py-1.5 pl-3 pr-1.5">
+              <AppLink
+                href={pathFor(activeDiscoverVariant === 'h' ? 'discover-h' : 'discover-season')}
+                onNavigate={() => onDiscover(activeDiscoverVariant === 'h' ? 'h' : 'season')}
+                className="py-1.5 pl-3 pr-1.5"
+              >
                 {activeDiscoverVariant === 'h' ? 'H' : 'Explore'}
-              </button>
+              </AppLink>
               <button
                 type="button"
                 onClick={() => setDiscoverOpen((o) => !o)}
@@ -323,9 +329,9 @@ export function SeasonSelector({
             </div>
             {discoverOpen && (
               <div className={`absolute left-0 mt-2 w-56 ${MENU}`}>
-                <button
-                  type="button"
-                  onClick={() => {
+                <AppLink
+                  href={pathFor('discover-season')}
+                  onNavigate={() => {
                     onDiscover('season');
                     setDiscoverOpen(false);
                   }}
@@ -335,10 +341,10 @@ export function SeasonSelector({
                 >
                   <Compass className="w-3.5 h-3.5 text-indigo-300" />
                   Explore by season
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
+                </AppLink>
+                <AppLink
+                  href={pathFor('discover-h')}
+                  onNavigate={() => {
                     setDiscoverOpen(false);
                     void openH();
                   }}
@@ -348,22 +354,22 @@ export function SeasonSelector({
                 >
                   <span>H</span>
                   <span className="text-xs text-rose-400">18+</span>
-                </button>
+                </AppLink>
               </div>
             )}
           </div>
 
-          <button type="button" onClick={onWatchlist} className={`hidden shrink-0 md:inline-flex ${navClass(isWatchlistActive)}`}>
+          <AppLink href={pathFor('watchlist')} onNavigate={onWatchlist} className={`hidden shrink-0 md:inline-flex ${navClass(isWatchlistActive)}`}>
             Watchlist
-          </button>
-          <button
-            type="button"
-            onClick={() => onDiscover('collection')}
+          </AppLink>
+          <AppLink
+            href={pathFor('collection-favorites')}
+            onNavigate={() => onDiscover('collection')}
             className={`hidden shrink-0 items-center gap-1.5 md:inline-flex ${navClass(activeDiscoverVariant === 'collection')}`}
           >
             <Heart className={`w-3.5 h-3.5 ${activeDiscoverVariant === 'collection' ? 'fill-current' : ''}`} />
             Collection
-          </button>
+          </AppLink>
         </nav>
 
         <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">

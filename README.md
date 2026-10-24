@@ -26,6 +26,7 @@ Personal seasonal anime tracker with AniList integration. Tracks watch progress,
 - Favorites and Interested collections, tracked like the schedule (status, episodes, your 1–5 score)
 - H section (18+): its own Explore page and favorites, kept apart from everything else
 - Global AniList search from the header (press `/`)
+- Every page and show has its own address: open pages in new tabs, bookmark them, reload where you are. Open tabs stay in sync
 - Excel import/export of your schedule and collection
 - Backups as plain `.sql` files: download or restore from Settings, or get one emailed every month
 - Online version: one account (username + password), managed entirely from the app's Settings page

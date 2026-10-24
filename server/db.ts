@@ -55,7 +55,11 @@ function kvStatement(key: string, value: string | null): SqlStatement {
   );
 }
 
-// ---- AppState (seasons + anime entries + activeSeasonId) -----------------
+// ---- AppState (seasons + anime entries) ------------------------------------
+//
+// The season on screen comes from each tab's address (src/lib/routes.ts), so
+// activeSeasonId isn't stored: tabs on different seasons would keep
+// overwriting it.
 
 interface SeasonRow {
   id: string;
@@ -173,13 +177,7 @@ async function readAppState(db: SqlDb): Promise<AppState | null> {
     animes: grouped.get(r.id) ?? [],
   }));
 
-  const activeRow = await db.first<{ value: string | null }>(
-    'SELECT value FROM kv_store WHERE key = ?',
-    'activeSeasonId',
-  );
-  const activeSeasonId = activeRow?.value || null;
-
-  return { seasons, activeSeasonId };
+  return { seasons, activeSeasonId: null };
 }
 
 async function writeAppState(db: SqlDb, state: AppState): Promise<number> {
@@ -252,7 +250,6 @@ async function writeAppState(db: SqlDb, state: AppState): Promise<number> {
     ...upsertRows(ANIME_ENTRIES, animes),
     deleteRowsNotIn(SEASONS, seasons),
     ...upsertRows(SCHEDULE_PROGRESS, progress),
-    kvStatement('activeSeasonId', state.activeSeasonId ?? null),
   ]);
 }
 

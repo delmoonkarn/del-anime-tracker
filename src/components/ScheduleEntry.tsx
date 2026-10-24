@@ -10,7 +10,7 @@ import {
   Tv,
 } from 'lucide-react';
 import type { AnimeEntry, WatchStatus } from '@/lib/types';
-import { entryLink, useOpenDetail, useWatchLinks } from '@/lib/nav';
+import { entryLink, ShowLink, useWatchLinks } from '@/lib/nav';
 import { BTN_ICON, MENU, MENU_ITEM, SURFACE } from '@/lib/ui';
 import {
   WATCH_STATUS_CLASS,
@@ -65,7 +65,6 @@ export function ScheduleEntry({
   isToday,
   isAired,
 }: Props) {
-  const openDetail = useOpenDetail();
   const confirm = useConfirm();
   const canOpen = entry.anilistId > 0;
   // Bound shows use their saved links; an unbound row has its one link inline.
@@ -251,9 +250,9 @@ export function ScheduleEntry({
   // detail page, so they keep linking to the streaming site.
   const poster = (className: string) =>
     canOpen ? (
-      <button type="button" onClick={() => openDetail(entry.anilistId)} className={className} aria-label={`Open ${entry.title}`}>
+      <ShowLink anilistId={entry.anilistId} className={className} label={`Open ${entry.title}`}>
         {posterImg}
-      </button>
+      </ShowLink>
     ) : entry.platformUrl ? (
       <a href={entry.platformUrl} target="_blank" rel="noopener noreferrer" className={className}>
         {posterImg}
@@ -263,9 +262,9 @@ export function ScheduleEntry({
     );
   const title = (className: string) =>
     canOpen ? (
-      <button type="button" onClick={() => openDetail(entry.anilistId)} className={`${className} text-left hover:text-indigo-300`} title={entry.title}>
+      <ShowLink anilistId={entry.anilistId} className={`${className} text-left hover:text-indigo-300`} title={entry.title}>
         {entry.title}
-      </button>
+      </ShowLink>
     ) : (
       <span className={className} title={entry.title}>
         {entry.title}

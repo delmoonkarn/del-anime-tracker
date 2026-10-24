@@ -6,7 +6,8 @@ import type {
   HDateSort,
   HPopularitySort,
 } from '@/lib/types';
-import { anilistUrl } from '@/lib/nav';
+import { anilistUrl, AppLink } from '@/lib/nav';
+import { pathFor } from '@/lib/routes';
 import { loadHPrefs, saveHPrefs } from '@/lib/storage';
 import { BTN, EYEBROW, FIELD } from '@/lib/ui';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -202,11 +203,11 @@ export function HDiscoverPage({
         }
         description="Adult titles from AniList. Your H favorites are kept apart from your Collection."
         actions={
-          <button type="button" onClick={onOpenFavorites} className={BTN} title="Open H favorites">
+          <AppLink href={pathFor('h-favorites')} onNavigate={onOpenFavorites} className={BTN} title="Open H favorites">
             <Heart className="h-4 w-4 text-rose-400" />
             Favorites
             <span className="tabular-nums text-zinc-400">{hFavoritesCount}</span>
-          </button>
+          </AppLink>
         }
       >
         <div className="flex flex-wrap items-center gap-2">

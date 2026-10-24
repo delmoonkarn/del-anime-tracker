@@ -1,4 +1,5 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, type AnchorHTMLAttributes, type ReactNode } from 'react';
+import { detailPath } from './routes';
 import type { AnimeEntry, StreamLink } from './types';
 import { mergeLinks, type Brand } from './streamLinks';
 
@@ -39,7 +40,31 @@ export function anilistUrl(anilistId: number): string {
   return `https://anilist.co/anime/${anilistId}`;
 }
 
-/** A card's poster or title: opens the show's detail page, or `url` in a new tab. */
+/**
+ * A link to one of the app's own pages (lib/routes). A plain click switches
+ * page in place through `onNavigate`; Ctrl / Cmd / Shift / middle click and
+ * "Open in new tab" open the address like any link.
+ */
+export function AppLink({
+  href,
+  onNavigate,
+  ...rest
+}: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string; onNavigate: () => void }) {
+  return (
+    <a
+      {...rest}
+      href={href}
+      onClick={(e) => {
+        rest.onClick?.(e);
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        onNavigate();
+      }}
+    />
+  );
+}
+
+/** A card's poster or title: opens the show's page (/anime/<id>), or `url` in a new tab. */
 export function ShowLink({
   anilistId,
   url,
@@ -66,16 +91,16 @@ export function ShowLink({
     );
   }
   return (
-    <button
-      type="button"
-      onClick={() => anilistId > 0 && openDetail(anilistId)}
+    <AppLink
+      href={detailPath(anilistId)}
+      onNavigate={() => anilistId > 0 && openDetail(anilistId)}
       className={className}
       aria-label={label}
       title={title}
       tabIndex={tabIndex}
     >
       {children}
-    </button>
+    </AppLink>
   );
 }
 

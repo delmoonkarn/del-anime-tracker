@@ -21,6 +21,8 @@ import type {
 } from '@/lib/types';
 import { BTN_PRIMARY, EYEBROW, FIELD, MENU } from '@/lib/ui';
 import { compareReleaseDate } from '@/lib/utils';
+import { AppLink } from '@/lib/nav';
+import { pathFor } from '@/lib/routes';
 import { useIsPhone } from '@/hooks/useIsPhone';
 import { CollectionCard } from './CollectionCard';
 import { PageHeader } from './PageHeader';
@@ -377,12 +379,12 @@ export function CollectionPage({
             const active = section === key;
             const n = collection.filter((c) => c.section === key).length;
             return (
-              <button
+              <AppLink
                 key={key}
-                type="button"
+                href={pathFor(key === 'favorites' ? 'collection-favorites' : 'collection-interested')}
                 role="tab"
                 aria-selected={active}
-                onClick={() => onSwitchSection(key)}
+                onNavigate={() => onSwitchSection(key)}
                 className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
                   active ? tone : 'border-transparent text-zinc-400 hover:text-zinc-100'
                 }`}
@@ -392,7 +394,7 @@ export function CollectionPage({
                 <span className="rounded-full bg-zinc-800 px-1.5 text-[0.6875rem] font-semibold tabular-nums text-zinc-300">
                   {n}
                 </span>
-              </button>
+              </AppLink>
             );
           })}
         </div>

@@ -3,6 +3,8 @@ import { DatabaseBackup, Download, KeyRound, Loader2, LogOut, Mail, Upload } fro
 import { apiCall, authCall, useAuth } from '@/lib/auth';
 import { resumeSaving, stopSaving } from '@/lib/storage';
 import type { SettingsTab } from '@/lib/types';
+import { AppLink } from '@/lib/nav';
+import { pathFor } from '@/lib/routes';
 import { BTN, BTN_PRIMARY, EYEBROW, FIELD, SURFACE } from '@/lib/ui';
 import { useConfirm } from './ConfirmDialog';
 import { PageHeader } from './PageHeader';
@@ -83,19 +85,19 @@ export function SettingsPage({ tab, onTab }: { tab: SettingsTab; onTab: (tab: Se
         {account && (
           <div role="tablist" className="flex gap-1 border-b border-zinc-800">
             {TABS.map(({ key, label, Icon }) => (
-              <button
+              <AppLink
                 key={key}
-                type="button"
+                href={pathFor(key === 'account' ? 'settings-account' : 'settings-backup')}
                 role="tab"
                 aria-selected={shown === key}
-                onClick={() => onTab(key)}
+                onNavigate={() => onTab(key)}
                 className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
                   shown === key ? 'border-indigo-500 text-indigo-300' : 'border-transparent text-zinc-400 hover:text-zinc-100'
                 }`}
               >
                 <Icon className="h-4 w-4" />
                 {label}
-              </button>
+              </AppLink>
             ))}
           </div>
         )}

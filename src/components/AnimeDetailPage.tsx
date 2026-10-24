@@ -20,7 +20,7 @@ import {
 import type { AnimeDetail, AnimeRelation } from '@/lib/anilist';
 import type { DiscoverItem, ScheduleProgress, StreamLink, WatchStatus } from '@/lib/types';
 import { stripHtml, toDiscoverItem } from '@/lib/discover';
-import { useOpenDetail, useOwnLinks, useRememberAnilistLinks, useSetLinks } from '@/lib/nav';
+import { ShowLink, useOwnLinks, useRememberAnilistLinks, useSetLinks } from '@/lib/nav';
 import { mergeLinks, normalizeStreamUrl, toAnilistLinks } from '@/lib/streamLinks';
 import { AIRING_STATUS_LABEL, BTN, BTN_PRIMARY, EYEBROW, FIELD, FORMAT_LABEL, MENU, MENU_ITEM, SURFACE } from '@/lib/ui';
 import {
@@ -753,13 +753,11 @@ function RelatedSection({ edges }: { edges: AnimeRelation[] }) {
 }
 
 function RelatedCard({ edge: { relationType, node } }: { edge: AnimeRelation }) {
-  const openDetail = useOpenDetail();
   const storyLine = relationType === 'PREQUEL' || relationType === 'SEQUEL';
   const title = node.title.romaji || node.title.english || `#${node.id}`;
   return (
-    <button
-      type="button"
-      onClick={() => openDetail(node.id)}
+    <ShowLink
+      anilistId={node.id}
       className={`${SURFACE} group flex w-full items-center gap-3 p-2 text-left transition-colors hover:border-indigo-500/50`}
     >
       <div className="h-16 w-11 shrink-0 overflow-hidden rounded-md bg-zinc-800">
@@ -783,7 +781,7 @@ function RelatedCard({ edge: { relationType, node } }: { edge: AnimeRelation }) 
         </p>
       </div>
       <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600 group-hover:text-indigo-300" />
-    </button>
+    </ShowLink>
   );
 }
 
