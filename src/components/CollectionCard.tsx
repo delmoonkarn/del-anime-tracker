@@ -1,17 +1,21 @@
 import { useCallback, useRef, useState } from 'react';
-import { Bookmark, Heart, Minus, MoreVertical, Plus, Trash2, Tv } from 'lucide-react';
+import { Bookmark, Heart, MoreVertical, Trash2, Tv } from 'lucide-react';
 import type { CollectionEntry, ScheduleProgress } from '@/lib/types';
 import { ShowLink, useWatchLinks } from '@/lib/nav';
 import { BTN_ICON, FORMAT_LABEL, MENU, MENU_ITEM, POSTER_ICON, SURFACE } from '@/lib/ui';
 import { nextProgressOnDec, nextProgressOnInc, nextProgressOnSetStatus } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
+import { EpisodeStepper } from './EpisodeStepper';
 import { StatusPill } from './StatusPill';
 import { UserScorePill } from './UserScorePill';
 import { ServiceLinks } from './ServiceLogo';
+import { ROW_POSTER, ShowRow } from './ShowRow';
 
 interface Props {
   /** A Collection show or an H favorite. */
   entry: Pick<CollectionEntry, 'anilistId' | 'title' | 'imageUrl' | 'format' | 'episodes' | 'startDate'>;
+  /** `row`: the compact phone row. */
+  layout?: 'card' | 'row';
   favorited: boolean;
   interested?: boolean;
   onToggleFavorite: () => void;
@@ -27,12 +31,12 @@ interface Props {
   openUrl?: string;
 }
 
-
 /** Collection grid card, laid out like the Explore card: poster with heart
  *  and channel icons, title + format line, then your status / score and
- *  the episode stepper. */
+ *  the episode stepper. On phones, a compact row with the same controls. */
 export function CollectionCard({
   entry,
+  layout = 'card',
   favorited,
   interested = false,
   onToggleFavorite,
@@ -52,7 +56,6 @@ export function CollectionCard({
 
   const { watchStatus, totalEpisodes } = progress;
   const watched = progress.episodesWatched ?? 0;
-  const atEnd = totalEpisodes != null && watched >= totalEpisodes;
   const update = (n: ReturnType<typeof nextProgressOnInc>) => onUpdateProgress?.({ ...n, totalEpisodes });
 
   const meta = [
@@ -60,6 +63,141 @@ export function CollectionCard({
     entry.episodes != null ? `${entry.episodes} eps` : null,
     entry.startDate?.year ? String(entry.startDate.year) : null,
   ].filter(Boolean);
+  const metaLine = meta.map((m, i) => (
+    <span key={i} className="contents">
+      {i > 0 && <span aria-hidden>·</span>}
+      <span>{m}</span>
+    </span>
+  ));
+
+  const posterImg = entry.imageUrl ? (
+    <img
+      src={entry.imageUrl}
+      alt={`${entry.title} poster`}
+      loading="lazy"
+      className={`h-full w-full object-cover ${layout === 'card' ? 'transition-transform duration-300 group-hover:scale-[1.03]' : ''}`}
+    />
+  ) : (
+    <Tv className="m-auto h-8 w-8 text-zinc-600" />
+  );
+  const title = (className: string) => (
+    <ShowLink anilistId={entry.anilistId} url={openUrl} className={`${className} text-left hover:text-indigo-300`} title={entry.title}>
+      {entry.title}
+    </ShowLink>
+  );
+
+  const chips = (
+    <>
+      {onUpdateProgress && (
+        <StatusPill
+          status={watchStatus}
+          onChange={(s) => update(nextProgressOnSetStatus(s ?? undefined, watched, totalEpisodes))}
+        />
+      )}
+      {onSetUserScore && <UserScorePill score={userScore} onChange={onSetUserScore} />}
+    </>
+  );
+
+  const stepper = onUpdateProgress && (
+    <EpisodeStepper
+      watched={watched}
+      total={totalEpisodes}
+      onDec={() => update(nextProgressOnDec(watched, totalEpisodes, watchStatus))}
+      onInc={() => update(nextProgressOnInc(watched, totalEpisodes, watchStatus))}
+      size={layout}
+      title={entry.title}
+    />
+  );
+
+  const menu = (
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        className={BTN_ICON}
+        onClick={() => setMenuOpen((o) => !o)}
+        aria-expanded={menuOpen}
+        aria-label={`More actions for ${entry.title}`}
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+      {menuOpen && (
+        // A card's menu opens upward so the next row of cards can't cover it.
+        <div className={`${MENU} absolute right-0 w-40 p-1 text-sm ${layout === 'card' ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+          {onToggleInterested && (
+            <>
+              <button
+                type="button"
+                className={`${MENU_ITEM} ${favorited ? 'text-rose-300' : ''}`}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onToggleFavorite();
+                }}
+              >
+                <Heart className={`h-3.5 w-3.5 ${favorited ? 'fill-current' : ''}`} />
+                {favorited ? 'Unfavorite' : 'Favorite'}
+              </button>
+              <button
+                type="button"
+                className={`${MENU_ITEM} ${interested ? 'text-sky-300' : ''}`}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onToggleInterested();
+                }}
+              >
+                <Bookmark className={`h-3.5 w-3.5 ${interested ? 'fill-current' : ''}`} />
+                {interested ? 'Not interested' : 'Mark interested'}
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            className={`${MENU_ITEM} text-red-300`}
+            onClick={() => {
+              setMenuOpen(false);
+              onRemove();
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Remove from list
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  if (layout === 'row') {
+    // The Collection's lists are what the marks say; H favorites need none.
+    const marks = onToggleInterested && (interested || favorited) && (
+      <span className="flex shrink-0 gap-1">
+        {interested && <Bookmark className="h-3.5 w-3.5 fill-current text-sky-400" aria-label="Interested" />}
+        {favorited && <Heart className="h-3.5 w-3.5 fill-current text-rose-400" aria-label="Favorite" />}
+      </span>
+    );
+    return (
+      <ShowRow
+        poster={
+          <ShowLink anilistId={entry.anilistId} url={openUrl} className={ROW_POSTER} label={`Open ${entry.title}`}>
+            {posterImg}
+          </ShowLink>
+        }
+        title={
+          <>
+            {title('truncate')}
+            {marks}
+          </>
+        }
+        info={
+          <>
+            {metaLine}
+            <ServiceLinks links={links} title={entry.title} size="h-5 w-5" max={2} className="ml-auto shrink-0 flex-nowrap" />
+          </>
+        }
+        chips={chips}
+        progress={stepper}
+        menu={menu}
+      />
+    );
+  }
 
   return (
     <article
@@ -74,16 +212,7 @@ export function CollectionCard({
           label={`Open ${entry.title}`}
           tabIndex={-1}
         >
-          {entry.imageUrl ? (
-            <img
-              src={entry.imageUrl}
-              alt={`${entry.title} poster`}
-              loading="lazy"
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-            />
-          ) : (
-            <Tv className="m-auto h-8 w-8 text-zinc-600" />
-          )}
+          {posterImg}
         </ShowLink>
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-end gap-1.5 p-2">
           {interested && (
@@ -114,120 +243,14 @@ export function CollectionCard({
       </div>
 
       <div className="flex flex-1 flex-col gap-1.5 p-3">
-        <h3 className="text-sm font-semibold leading-snug">
-          <ShowLink
-            anilistId={entry.anilistId}
-            url={openUrl}
-            className="line-clamp-2 text-left hover:text-indigo-300"
-            title={entry.title}
-          >
-            {entry.title}
-          </ShowLink>
-        </h3>
-        <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-zinc-400">
-          {meta.map((m, i) => (
-            <span key={i} className="contents">
-              {i > 0 && <span aria-hidden>·</span>}
-              <span>{m}</span>
-            </span>
-          ))}
-        </p>
+        <h3 className="text-sm font-semibold leading-snug">{title('line-clamp-2')}</h3>
+        <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-zinc-400">{metaLine}</p>
 
-        <div className="flex flex-wrap items-center gap-1">
-          {onUpdateProgress && (
-            <StatusPill
-              status={watchStatus}
-              onChange={(s) => update(nextProgressOnSetStatus(s ?? undefined, watched, totalEpisodes))}
-            />
-          )}
-          {onSetUserScore && <UserScorePill score={userScore} onChange={onSetUserScore} />}
-        </div>
+        <div className="flex flex-wrap items-center gap-1">{chips}</div>
 
         <div className="mt-auto flex items-center gap-1.5 pt-2">
-          {onUpdateProgress ? (
-            <div
-              className="flex h-8 flex-1 overflow-hidden rounded-lg border border-zinc-800"
-              role="group"
-              aria-label={`Episodes watched of ${entry.title}`}
-            >
-              <button
-                type="button"
-                className="grid w-7 shrink-0 place-items-center bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40"
-                disabled={watched <= 0}
-                onClick={() => update(nextProgressOnDec(watched, totalEpisodes, watchStatus))}
-                aria-label="One episode less"
-              >
-                <Minus className="h-3.5 w-3.5" />
-              </button>
-              <span className="flex min-w-0 flex-1 items-center justify-center bg-zinc-950 px-1 text-sm font-medium tabular-nums">
-                {watched}/{totalEpisodes ?? '?'}
-              </span>
-              <button
-                type="button"
-                className="grid w-7 shrink-0 place-items-center bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-40"
-                disabled={atEnd}
-                onClick={() => update(nextProgressOnInc(watched, totalEpisodes, watchStatus))}
-                aria-label="One episode more"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ) : (
-            <span className="flex-1" />
-          )}
-          <div ref={menuRef} className="relative">
-            <button
-              type="button"
-              className={BTN_ICON}
-              onClick={() => setMenuOpen((o) => !o)}
-              aria-expanded={menuOpen}
-              aria-label={`More actions for ${entry.title}`}
-            >
-              <MoreVertical className="h-4 w-4" />
-            </button>
-            {menuOpen && (
-              // Opens upward so the next row of cards can't cover it.
-              <div className={`${MENU} absolute bottom-full right-0 mb-1 w-40 p-1 text-sm`}>
-                {onToggleInterested && (
-                  <>
-                    <button
-                      type="button"
-                      className={`${MENU_ITEM} ${favorited ? 'text-rose-300' : ''}`}
-                      onClick={() => {
-                        setMenuOpen(false);
-                        onToggleFavorite();
-                      }}
-                    >
-                      <Heart className={`h-3.5 w-3.5 ${favorited ? 'fill-current' : ''}`} />
-                      {favorited ? 'Unfavorite' : 'Favorite'}
-                    </button>
-                    <button
-                      type="button"
-                      className={`${MENU_ITEM} ${interested ? 'text-sky-300' : ''}`}
-                      onClick={() => {
-                        setMenuOpen(false);
-                        onToggleInterested();
-                      }}
-                    >
-                      <Bookmark className={`h-3.5 w-3.5 ${interested ? 'fill-current' : ''}`} />
-                      {interested ? 'Not interested' : 'Mark interested'}
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  className={`${MENU_ITEM} text-red-300`}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onRemove();
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Remove from list
-                </button>
-              </div>
-            )}
-          </div>
+          {stepper ?? <span className="flex-1" />}
+          {menu}
         </div>
       </div>
     </article>

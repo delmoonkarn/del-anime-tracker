@@ -4,10 +4,8 @@ import {
   Check,
   Clock,
   Heart,
-  Minus,
   MoreVertical,
   Pencil,
-  Plus,
   Trash2,
   Tv,
 } from 'lucide-react';
@@ -26,12 +24,15 @@ import {
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { StatusPill } from './StatusPill';
 import { useConfirm } from './ConfirmDialog';
+import { EpisodeStepper } from './EpisodeStepper';
 import { ServiceLinks } from './ServiceLogo';
+import { ROW_POSTER, ShowRow } from './ShowRow';
 import type { ViewMode } from './ViewModeToggle';
 
 interface Props {
   entry: AnimeEntry;
-  layout: ViewMode;
+  /** `row`: the compact phone row. */
+  layout: ViewMode | 'row';
   onEdit: (entry: AnimeEntry) => void;
   onDelete: (id: string) => void;
   onUpdate?: (entry: AnimeEntry) => void;
@@ -47,9 +48,9 @@ interface Props {
 }
 
 
-/** A schedule entry drawn like a Watchlist entry: poster card (card view) or
- *  row (list view), with the status pill, the episode stepper and a ⋯ menu
- *  holding edit, favorite / interested and delete. */
+/** A schedule entry drawn like a Watchlist entry: poster card (card view),
+ *  row (list view) or compact row (phones), with the status pill, the episode
+ *  stepper and a ⋯ menu holding edit, favorite / interested and delete. */
 export function ScheduleEntry({
   entry,
   layout,
@@ -74,7 +75,6 @@ export function ScheduleEntry({
   const watched = entry.episodesWatched ?? 0;
   const total = entry.totalEpisodes;
   const status = entry.watchStatus;
-  const atEnd = total != null && watched >= total;
   const aired = showAiring ? computeAiredEpisodes(entry) : null;
   const behind = aired != null && status === 'WATCHING' ? aired - watched : null;
   const isBehind = behind != null && behind > 0;
@@ -159,36 +159,15 @@ export function ScheduleEntry({
     </div>
   );
 
-  // Card layout squeezes into a 2-column phone grid, so its stepper is tighter.
-  const stepW = layout === 'card' ? 'w-7' : 'w-8';
   const stepper = onUpdate && (
-    <div
-      className={`flex h-8 overflow-hidden rounded-lg border border-zinc-800 ${layout === 'card' ? 'flex-1' : ''}`}
-      role="group"
-      aria-label={`Episodes watched of ${entry.title}`}
-    >
-      <button
-        type="button"
-        className={`grid ${stepW} shrink-0 place-items-center bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40`}
-        disabled={watched <= 0}
-        onClick={() => update(nextProgressOnDec(watched, total, status))}
-        aria-label="One episode less"
-      >
-        <Minus className="h-3.5 w-3.5" />
-      </button>
-      <span className={`flex flex-1 items-center justify-center bg-zinc-950 text-sm font-medium tabular-nums ${layout === 'card' ? 'min-w-0 px-1' : 'min-w-16 px-2'}`}>
-        {layout === 'card' ? `${watched}/${total ?? '?'}` : `${watched} / ${total ?? '?'}`}
-      </span>
-      <button
-        type="button"
-        className={`grid ${stepW} shrink-0 place-items-center bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-40`}
-        disabled={atEnd}
-        onClick={() => update(nextProgressOnInc(watched, total, status))}
-        aria-label="One episode more"
-      >
-        <Plus className="h-3.5 w-3.5" />
-      </button>
-    </div>
+    <EpisodeStepper
+      watched={watched}
+      total={total}
+      onDec={() => update(nextProgressOnDec(watched, total, status))}
+      onInc={() => update(nextProgressOnInc(watched, total, status))}
+      size={layout}
+      title={entry.title}
+    />
   );
 
   const canFavorite = entry.anilistId > 0;
@@ -301,6 +280,51 @@ export function ScheduleEntry({
 
   const outline = isBehind ? 'border-amber-500/50' : 'hover:border-zinc-700';
   const dim = isDropped ? 'opacity-60 saturate-50' : '';
+
+  if (layout === 'row') {
+    return (
+      <ShowRow
+        className={`${outline} ${dim}`}
+        poster={poster(ROW_POSTER)}
+        title={
+          <>
+            {title('truncate')}
+            {marks}
+          </>
+        }
+        info={
+          <>
+            <Clock className={`h-3 w-3 shrink-0 ${isToday ? 'text-indigo-300' : ''}`} />
+            <span className={`shrink-0 ${isToday ? 'font-semibold text-indigo-300' : ''} ${isAired ? 'line-through opacity-80' : ''}`}>
+              {entry.time || '—'}
+            </span>
+            {nextLine && <span className="truncate text-indigo-300">· {nextLine}</span>}
+            <ServiceLinks links={links} title={entry.title} size="h-5 w-5" max={2} className="ml-auto shrink-0 flex-nowrap" />
+          </>
+        }
+        chips={
+          <>
+            {onUpdate ? (
+              <StatusPill status={status} onChange={(s) => setStatus(s ?? undefined)} />
+            ) : (
+              status && (
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${WATCH_STATUS_CLASS[status]}`}>
+                  {WATCH_STATUS_LABELS[status]}
+                </span>
+              )
+            )}
+            {isAired && <span className="shrink-0 rounded-md bg-amber-500 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-950">Aired</span>}
+            {isBehind && (
+              <span className="shrink-0 rounded-md bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-medium text-amber-300">Behind {behind}</span>
+            )}
+            {entry.status && <span className="truncate text-[11px] text-indigo-200">{entry.status}</span>}
+          </>
+        }
+        progress={stepper}
+        menu={menu}
+      />
+    );
+  }
 
   if (layout === 'card') {
     return (

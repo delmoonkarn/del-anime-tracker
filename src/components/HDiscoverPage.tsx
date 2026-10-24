@@ -11,6 +11,7 @@ import { loadHPrefs, saveHPrefs } from '@/lib/storage';
 import { BTN, EYEBROW, FIELD } from '@/lib/ui';
 import { useDebounce } from '@/hooks/useDebounce';
 import { ExploreCard } from './ExploreCard';
+import { useIsPhone } from '@/hooks/useIsPhone';
 import { PageHeader } from './PageHeader';
 import { TagFilterPicker } from './TagFilterPicker';
 import { useConfirm } from './ConfirmDialog';
@@ -31,6 +32,7 @@ export function HDiscoverPage({
   onOpenFavorites,
 }: Props) {
   const confirm = useConfirm();
+  const phone = useIsPhone();
   const [dateSort, setDateSort] = useState<HDateSort>('NEW');
   const [popularitySort, setPopularitySort] = useState<HPopularitySort>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -190,7 +192,7 @@ export function HDiscoverPage({
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+    <div className="max-w-7xl mx-auto px-4 py-4 sm:py-8">
       <PageHeader
         title={
           <>
@@ -293,11 +295,12 @@ export function HDiscoverPage({
               ? ` · ${selectedTags.length} tag${selectedTags.length === 1 ? '' : 's'} (any)`
               : ''}
           </p>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+          <div className="grid grid-cols-3 gap-x-2 gap-y-4 sm:gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {items.map((item) => (
               <ExploreCard
                 key={item.anilistId}
                 item={item}
+                compact={phone}
                 favorited={isFavoritedH(item.anilistId)}
                 onToggleFavorite={() => void toggleFavorite(item)}
                 openUrl={anilistUrl(item.anilistId)}

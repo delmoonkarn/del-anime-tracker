@@ -11,9 +11,10 @@ import type {
 import { tagsMatch } from '@/lib/utils';
 import { useLinksResolver, useRememberAnilistLinks } from '@/lib/nav';
 import { serviceLabel } from '@/lib/streamLinks';
-import { BTN, BTN_ICON, EYEBROW, FIELD, MENU, pillClass } from '@/lib/ui';
+import { BTN, BTN_ICON, EYEBROW, FIELD, MENU, PILL_ROW, pillClass } from '@/lib/ui';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { ExploreCard } from './ExploreCard';
+import { useIsPhone } from '@/hooks/useIsPhone';
 import { PageHeader } from './PageHeader';
 import { ServiceLogo } from './ServiceLogo';
 import { TagFilterPicker } from './TagFilterPicker';
@@ -84,6 +85,7 @@ export function DiscoverPage({
   );
   const [selectedYear, setSelectedYear] = useState<number>(defaultRef.year);
   const [search, setSearch] = useState('');
+  const phone = useIsPhone();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
   /** Streaming service names; a show passes if it is on any of them. */
@@ -461,7 +463,7 @@ export function DiscoverPage({
       : seasonNameFromMonth(item.startDate?.year ?? selectedYear, item.startDate?.month ?? undefined);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+    <div className="max-w-7xl mx-auto px-4 py-4 sm:py-8">
       <PageHeader
         title={
           <>
@@ -582,7 +584,7 @@ export function DiscoverPage({
             )}
           </label>
           {(formatList.length > 0 || filteredContinuing.length > 0) && (
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Format">
+            <div className={PILL_ROW} role="group" aria-label="Format">
               {formatList.map((f) => {
                 const active = selectedFormats.includes(f);
                 return (
@@ -641,11 +643,11 @@ export function DiscoverPage({
       )}
 
       {loading && items.length === 0 && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6" aria-busy="true">
+        <div className="grid grid-cols-3 gap-x-2 gap-y-4 sm:gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6" aria-busy="true">
           {Array.from({ length: 12 }, (_, i) => (
             <div key={i} className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900" aria-hidden>
               <div className="aspect-[2/3] w-full animate-pulse bg-zinc-800" />
-              <div className="flex flex-col gap-2 p-3">
+              <div className="hidden flex-col gap-2 p-3 sm:flex">
                 <div className="h-4 w-3/4 animate-pulse rounded bg-zinc-800" />
                 <div className="h-3 w-1/2 animate-pulse rounded bg-zinc-800" />
               </div>
@@ -665,7 +667,7 @@ export function DiscoverPage({
       )}
 
       {orderedItems.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="grid grid-cols-3 gap-x-2 gap-y-4 sm:gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {(() => {
             // Walk orderedItems and inject a full-width heading whenever the
             // block changes. TV and ONA share a block so there's no line
@@ -688,6 +690,7 @@ export function DiscoverPage({
                 <ExploreCard
                   key={item.anilistId}
                   item={item}
+                  compact={phone}
                   favorited={isFavorited(item.anilistId)}
                   onToggleFavorite={() => onToggleFavorite(item)}
                   list={{

@@ -33,7 +33,8 @@ import { ScheduleEntry } from './ScheduleEntry';
 import { useConfirm } from './ConfirmDialog';
 import { PageHeader } from './PageHeader';
 import { ViewModeToggle, usePersistedViewMode } from './ViewModeToggle';
-import { BTN_PRIMARY, FIELD, MENU, pillClass } from '@/lib/ui';
+import { useIsPhone } from '@/hooks/useIsPhone';
+import { BTN_PRIMARY, FIELD, MENU, PILL_ROW, pillClass } from '@/lib/ui';
 
 interface Props {
   animes: AnimeEntry[];
@@ -217,7 +218,10 @@ export function ScheduleGrid({
   const [statusFilter, setStatusFilter] = useState<
     WatchStatus | 'ALL' | 'BEHIND'
   >('ALL');
-  const [viewMode, setViewMode] = usePersistedViewMode('scheduleViewMode');
+  const [savedViewMode, setViewMode] = usePersistedViewMode('scheduleViewMode');
+  // Phones always get compact rows, grouped by day like the list view.
+  const phone = useIsPhone();
+  const viewMode = phone ? 'list' : savedViewMode;
   const [dayFilter, setDayFilter] = useState<DayFilter>('all');
   const q = search.trim().toLowerCase();
   const searched = q
@@ -301,11 +305,11 @@ export function ScheduleGrid({
       isToday,
       isAired,
     };
-    return <ScheduleEntry {...shared} layout={viewMode} />;
+    return <ScheduleEntry {...shared} layout={phone ? 'row' : viewMode} />;
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+    <div className="max-w-7xl mx-auto px-4 py-4 sm:py-8">
       <PageHeader
         title={
           <>
@@ -324,7 +328,7 @@ export function ScheduleGrid({
         count={animes.length}
         actions={
           <>
-            <ViewModeToggle value={viewMode} onChange={setViewMode} />
+            {!phone && <ViewModeToggle value={viewMode} onChange={setViewMode} />}
             <ImportExportMenu
               onImport={onImport}
               onExport={onExport}
@@ -363,7 +367,7 @@ export function ScheduleGrid({
           {animes.length > 0 && (
             <>
               <span className="mx-1 hidden h-5 border-l border-zinc-800 sm:block" aria-hidden />
-              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Watch status">
+              <div className={PILL_ROW} role="group" aria-label="Watch status">
                 <button
                   type="button"
                   onClick={() => setStatusFilter('ALL')}
@@ -594,7 +598,7 @@ export function ScheduleGrid({
                     {isTodaySection ? 'Nothing on this schedule airs today.' : `Nothing airs on ${title}.`}
                   </p>
                 ) : viewMode === 'list' ? (
-                  <ul className="flex flex-col gap-3">
+                  <ul className={`flex flex-col ${phone ? 'gap-2' : 'gap-3'}`}>
                     {sec.items.map((entry) => (
                       <li key={entry.id}>{renderEntry(entry, sec.key === 'movies')}</li>
                     ))}

@@ -75,7 +75,7 @@ export function SettingsPage({ tab, onTab }: { tab: SettingsTab; onTab: (tab: Se
   // Without sign-in (the PC version) there's no account, so no tabs either.
   const shown = account ? tab : 'backup';
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
+    <div className="mx-auto max-w-3xl px-4 py-4 sm:py-8">
       <PageHeader
         title="Settings"
         description={account ? 'Your account, and how your data gets backed up.' : 'How your data gets backed up.'}

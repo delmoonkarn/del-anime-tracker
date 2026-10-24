@@ -4,6 +4,7 @@ import type { CollectionSort, HFavoriteEntry, ScheduleProgress } from '@/lib/typ
 import { anilistUrl } from '@/lib/nav';
 import { BTN, FIELD } from '@/lib/ui';
 import { compareReleaseDate } from '@/lib/utils';
+import { useIsPhone } from '@/hooks/useIsPhone';
 import { CollectionCard } from './CollectionCard';
 import { useConfirm } from './ConfirmDialog';
 import { PageHeader } from './PageHeader';
@@ -24,6 +25,7 @@ export function HFavoritesPage({ items, onRemove, onUpdateProgress, onSetUserSco
   const [sort, setSort] = useState<CollectionSort>('ADDED_NEW');
   const [statuses, setStatuses] = useState<Set<StatusFilter>>(new Set());
   const confirm = useConfirm();
+  const phone = useIsPhone();
 
   const q = search.trim().toLowerCase();
   const filtered = items.filter(
@@ -61,7 +63,7 @@ export function HFavoritesPage({ items, onRemove, onUpdateProgress, onSetUserSco
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+    <div className="max-w-7xl mx-auto px-4 py-4 sm:py-8">
       <PageHeader
         title={
           <>
@@ -134,11 +136,12 @@ export function HFavoritesPage({ items, onRemove, onUpdateProgress, onSetUserSco
       {items.length > 0 && sorted.length === 0 && <p className="py-12 text-center text-sm text-zinc-500">No results.</p>}
 
       {sorted.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className={phone ? 'flex flex-col gap-2' : 'grid grid-cols-3 gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'}>
           {sorted.map((entry) => (
             <CollectionCard
               key={entry.anilistId}
               entry={entry}
+              layout={phone ? 'row' : 'card'}
               favorited
               onToggleFavorite={() => void remove(entry)}
               onRemove={() => void remove(entry)}

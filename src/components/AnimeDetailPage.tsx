@@ -256,7 +256,7 @@ function Detail({
   );
 
   return (
-    <article className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+    <article className="max-w-7xl mx-auto px-4 py-4 sm:py-8">
       <Backdrop anime={anime} onBack={onBack} />
 
       <div className="relative grid gap-6 md:grid-cols-[15rem_minmax(0,1fr)] md:gap-8 md:px-6 lg:grid-cols-[16rem_minmax(0,1fr)]">
@@ -789,7 +789,7 @@ function RelatedCard({ edge: { relationType, node } }: { edge: AnimeRelation }) 
 
 function DetailSkeleton({ onBack }: { onBack: () => void }) {
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8" aria-busy="true">
+    <div className="max-w-7xl mx-auto px-4 py-4 sm:py-8" aria-busy="true">
       <div className="relative h-44 animate-pulse rounded-xl bg-zinc-900 sm:h-64 lg:h-72">
         <BackButton onBack={onBack} />
       </div>

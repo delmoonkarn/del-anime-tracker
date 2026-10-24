@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Clock, Compass, Heart, Loader2, Minus, MoreVertical, Pencil, Plus, Tv } from 'lucide-react';
+import { Check, Clock, Compass, Heart, Loader2, MoreVertical, Pencil, Tv } from 'lucide-react';
 import type { AnilistMedia, DiscoverItem, ScheduleProgress, WatchStatus } from '@/lib/types';
 import { useOpenDetail, useRememberAnilistLinks, useWatchLinks } from '@/lib/nav';
 import { toAnilistLinks } from '@/lib/streamLinks';
 import { AIRING_STATUS_LABEL, BTN_ICON, BTN_PRIMARY, MENU, SURFACE, pillClass } from '@/lib/ui';
 import { formatNextAiring, nextProgressOnDec, nextProgressOnInc, nextProgressOnSetStatus } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
+import { useIsPhone } from '@/hooks/useIsPhone';
 import { StatusPill } from './StatusPill';
+import { EpisodeStepper } from './EpisodeStepper';
 import { PageHeader } from './PageHeader';
 import { ServiceLinks } from './ServiceLogo';
+import { ROW_POSTER, ShowRow } from './ShowRow';
 import { ViewModeToggle, usePersistedViewMode, type ViewMode } from './ViewModeToggle';
 
 /** A show marked Watching, from any schedule season or the collection. */
@@ -95,7 +98,10 @@ export function WatchlistPage({
   const rememberAnilistLinks = useRememberAnilistLinks();
   const [loading, setLoading] = useState(false);
   const [dayFilter, setDayFilter] = useState<DayFilter>('all');
-  const [viewMode, setViewMode] = usePersistedViewMode('watchlistViewMode', 'list');
+  const [savedViewMode, setViewMode] = usePersistedViewMode('watchlistViewMode', 'list');
+  // Phones always get compact rows, grouped by day like the list view.
+  const phone = useIsPhone();
+  const viewMode = phone ? 'list' : savedViewMode;
   const today = new Date().getDay();
   const nowSec = Date.now() / 1000;
 
@@ -149,7 +155,7 @@ export function WatchlistPage({
 
   if (items.length === 0) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:py-8">
         <PageHeader title="Watchlist" description="Every show you're watching, across all seasons." />
         <div className="my-6 flex flex-col items-center gap-2 rounded-xl border border-dashed border-zinc-800 px-6 py-14 text-center">
           <span className="mb-1 grid h-12 w-12 place-items-center rounded-full bg-zinc-800 text-zinc-500">
@@ -170,7 +176,7 @@ export function WatchlistPage({
   const renderEntry = (r: Row) => (
     <WatchingEntry
       row={r}
-      layout={viewMode}
+      layout={phone ? 'row' : viewMode}
       progress={progressOf(r.item.anilistId)}
       onUpdate={(next) => onUpdateProgress(r.item.anilistId, next)}
       favorited={isFavorited(r.item.anilistId)}
@@ -188,7 +194,7 @@ export function WatchlistPage({
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+    <div className="max-w-7xl mx-auto px-4 py-4 sm:py-8">
       <PageHeader
         title="Watchlist"
         count={items.length}
@@ -201,7 +207,7 @@ export function WatchlistPage({
                 Checking AniList…
               </span>
             )}
-            <ViewModeToggle value={viewMode} onChange={setViewMode} />
+            {!phone && <ViewModeToggle value={viewMode} onChange={setViewMode} />}
           </>
         }
       />
@@ -324,7 +330,7 @@ export function WatchlistPage({
                       : `Nothing you watch airs on ${WEEKDAY_LABEL[g.day]}.`}
                 </p>
               ) : (
-                <ul className="flex flex-col gap-3">
+                <ul className={`flex flex-col ${phone ? 'gap-2' : 'gap-3'}`}>
                   {g.items.map((r) => (
                     <li key={r.item.anilistId}>{renderEntry(r)}</li>
                   ))}
@@ -351,7 +357,8 @@ function WatchingEntry({
   onEdit,
 }: {
   row: Row;
-  layout: ViewMode;
+  /** `row`: the compact phone row. */
+  layout: ViewMode | 'row';
   progress?: ScheduleProgress;
   onUpdate: (next: ScheduleProgress) => void;
   favorited: boolean;
@@ -365,7 +372,6 @@ function WatchingEntry({
   const watched = progress?.episodesWatched ?? 0;
   const status = progress?.watchStatus;
   const behind = aired != null ? aired - watched : null;
-  const atEnd = total != null && watched >= total;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -406,36 +412,15 @@ function WatchingEntry({
     </div>
   );
 
-  // Card layout squeezes into a 2-column phone grid, so its stepper is tighter.
-  const stepW = layout === 'card' ? 'w-7' : 'w-8';
   const stepper = (
-    <div
-      className={`flex h-8 overflow-hidden rounded-lg border border-zinc-800 ${layout === 'card' ? 'flex-1' : ''}`}
-      role="group"
-      aria-label={`Episodes watched of ${item.title}`}
-    >
-      <button
-        type="button"
-        className={`grid ${stepW} shrink-0 place-items-center bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40`}
-        disabled={watched <= 0}
-        onClick={() => onUpdate({ ...nextProgressOnDec(watched, total, status), totalEpisodes: total })}
-        aria-label="One episode less"
-      >
-        <Minus className="h-3.5 w-3.5" />
-      </button>
-      <span className={`flex flex-1 items-center justify-center bg-zinc-950 text-sm font-medium tabular-nums ${layout === 'card' ? 'min-w-0 px-1' : 'min-w-16 px-2'}`}>
-        {layout === 'card' ? `${watched}/${total ?? '?'}` : `${watched} / ${total ?? '?'}`}
-      </span>
-      <button
-        type="button"
-        className={`grid ${stepW} shrink-0 place-items-center bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-40`}
-        disabled={atEnd}
-        onClick={() => onUpdate({ ...nextProgressOnInc(watched, total, status), totalEpisodes: total })}
-        aria-label="One episode more"
-      >
-        <Plus className="h-3.5 w-3.5" />
-      </button>
-    </div>
+    <EpisodeStepper
+      watched={watched}
+      total={total}
+      onDec={() => onUpdate({ ...nextProgressOnDec(watched, total, status), totalEpisodes: total })}
+      onInc={() => onUpdate({ ...nextProgressOnInc(watched, total, status), totalEpisodes: total })}
+      size={layout}
+      title={item.title}
+    />
   );
 
   const menu = (
@@ -495,6 +480,43 @@ function WatchingEntry({
   ) : (
     <Tv className="m-auto h-5 w-5 text-zinc-600" />
   );
+
+  if (layout === 'row') {
+    const open = (className: string, children: React.ReactNode, label?: string) => (
+      <button type="button" onClick={() => openDetail(item.anilistId)} className={className} aria-label={label} title={item.title}>
+        {children}
+      </button>
+    );
+    return (
+      <ShowRow
+        className={behind !== null && behind > 0 ? 'border-amber-500/50' : ''}
+        poster={open(ROW_POSTER, poster, `Open ${item.title}`)}
+        title={open('truncate text-left hover:text-indigo-300', item.title)}
+        info={
+          <>
+            {airTime && (
+              <>
+                <Clock className="h-3 w-3 shrink-0" />
+                <span className="shrink-0">{airTime}</span>
+              </>
+            )}
+            <span className="truncate text-indigo-300">{nextLine ? `· ${nextLine}` : airedLine}</span>
+            <ServiceLinks links={links} title={item.title} size="h-5 w-5" max={2} className="ml-auto shrink-0 flex-nowrap" />
+          </>
+        }
+        chips={
+          <>
+            <StatusPill status={status} onChange={(s) => setStatus(s ?? undefined)} />
+            {behind !== null && behind > 0 && (
+              <span className="shrink-0 rounded-md bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-medium text-amber-300">Behind {behind}</span>
+            )}
+          </>
+        }
+        progress={stepper}
+        menu={menu}
+      />
+    );
+  }
 
   if (layout === 'card') {
     const behindCard = behind !== null && behind > 0;

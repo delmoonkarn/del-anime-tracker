@@ -22,11 +22,14 @@ interface Props {
   };
   /** Opens this page in a new tab instead of the show's detail page. */
   openUrl?: string;
+  /** Phones: just the poster and title, three to a row (like AniList). The
+   *  rest is on the show's page; on H, the heart adds and removes. */
+  compact?: boolean;
 }
 
 /** Explore grid card: poster (opens the detail page) with a favorite heart
  *  and channel icons, title + format line, and an "Add to list" menu. */
-export function ExploreCard({ item, favorited, onToggleFavorite, list, openUrl }: Props) {
+export function ExploreCard({ item, favorited, onToggleFavorite, list, openUrl, compact }: Props) {
   const links = useWatchLinks(item.anilistId);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -40,6 +43,61 @@ export function ExploreCard({ item, favorited, onToggleFavorite, list, openUrl }
   const status = item.status ? (AIRING_STATUS_LABEL[item.status] ?? item.status) : null;
   const added = list?.added ?? false;
   const interested = list?.interested ?? false;
+
+  if (compact) {
+    return (
+      <article className="group flex flex-col gap-1.5">
+        <div className={`relative overflow-hidden rounded-lg ${added ? 'ring-2 ring-indigo-500' : ''}`}>
+          <ShowLink
+            anilistId={item.anilistId}
+            url={openUrl}
+            className="block aspect-[2/3] w-full overflow-hidden bg-zinc-800"
+            label={`Open ${item.title}`}
+            tabIndex={-1}
+          >
+            {item.imageUrl ? (
+              <img src={item.imageUrl} alt={`${item.title} poster`} loading="lazy" className="h-full w-full object-cover" />
+            ) : (
+              <Tv className="m-auto h-6 w-6 text-zinc-600" />
+            )}
+          </ShowLink>
+          <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-end p-0.5">
+            {interested && (
+              <button
+                type="button"
+                className={`${POSTER_ICON} pointer-events-auto text-sky-400`}
+                aria-label="Remove from Interested"
+                onClick={list?.onToggleInterested}
+              >
+                <Bookmark className="h-4 w-4 fill-current" />
+              </button>
+            )}
+            {(favorited || !list) && (
+              <button
+                type="button"
+                className={`${POSTER_ICON} pointer-events-auto ${favorited ? 'text-rose-500' : 'text-white/90'}`}
+                aria-label={favorited ? 'Remove from favorites' : 'Add to favorites'}
+                onClick={onToggleFavorite}
+              >
+                <Heart className={`h-4 w-4 ${favorited ? 'fill-current' : ''}`} />
+              </button>
+            )}
+          </div>
+          <ServiceLinks links={links} title={item.title} size="h-5 w-5" max={2} className="absolute bottom-1 left-1" />
+        </div>
+        <h3 className="text-xs font-medium leading-snug">
+          <ShowLink
+            anilistId={item.anilistId}
+            url={openUrl}
+            className="line-clamp-2 text-left hover:text-indigo-300"
+            title={item.title}
+          >
+            {item.title}
+          </ShowLink>
+        </h3>
+      </article>
+    );
+  }
 
   return (
     <article

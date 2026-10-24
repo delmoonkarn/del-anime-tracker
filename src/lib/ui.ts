@@ -41,6 +41,11 @@ export const DIALOG_BACKDROP =
  *  outline so it stays readable on bright artwork. */
 export const POSTER_ICON = 'grid h-8 w-8 place-items-center drop-shadow-[0_0_3px_rgba(0,0,0,0.85)]';
 
+/** A row of filter pills: one line that scrolls sideways on phones, wraps
+ *  from `sm` up. */
+export const PILL_ROW =
+  'flex w-full items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&>*]:shrink-0 sm:w-auto sm:flex-wrap sm:overflow-visible';
+
 /** A row inside a MENU (icon + label). */
 export const MENU_ITEM = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-zinc-700';
 

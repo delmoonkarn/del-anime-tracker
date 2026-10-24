@@ -1,5 +1,5 @@
 import type { WatchStatus } from '@/lib/types';
-import { pillClass } from '@/lib/ui';
+import { PILL_ROW, pillClass } from '@/lib/ui';
 import { WATCH_STATUSES, WATCH_STATUS_CLASS, WATCH_STATUS_SHORT } from '@/lib/utils';
 
 /** Extra "filter bucket" for shows with no watch status yet. */
@@ -39,7 +39,7 @@ export function StatusFilterPills({
   onChange: (next: Set<StatusFilter>) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Watch status">
+    <div className={PILL_ROW} role="group" aria-label="Watch status">
       {OPTIONS.map((s) => {
         const active = selected.has(s);
         const n = statuses.filter((st) => (st ?? UNTRACKED) === s).length;

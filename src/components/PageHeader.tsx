@@ -16,10 +16,10 @@ export function PageHeader({
   children?: ReactNode;
 }) {
   return (
-    <header className="mb-6 flex flex-col gap-4 border-b border-zinc-800 pb-5">
+    <header className="mb-4 flex flex-col gap-3 border-b border-zinc-800 pb-3 sm:mb-6 sm:gap-4 sm:pb-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight sm:text-3xl">
+          <h1 className="flex items-center gap-2.5 text-xl font-bold tracking-tight sm:text-3xl">
             {title}
             {count !== undefined && (
               <span className="rounded-full bg-zinc-800 px-2.5 py-0.5 text-sm font-semibold text-zinc-300 tabular-nums">
@@ -27,7 +27,8 @@ export function PageHeader({
               </span>
             )}
           </h1>
-          {description && <p className="mt-1 max-w-2xl text-sm text-zinc-400">{description}</p>}
+          {/* Phones skip it: the list matters more than the explanation. */}
+          {description && <p className="mt-1 hidden max-w-2xl text-sm text-zinc-400 sm:block">{description}</p>}
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>

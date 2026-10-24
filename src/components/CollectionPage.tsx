@@ -21,6 +21,7 @@ import type {
 } from '@/lib/types';
 import { BTN_PRIMARY, EYEBROW, FIELD, MENU } from '@/lib/ui';
 import { compareReleaseDate } from '@/lib/utils';
+import { useIsPhone } from '@/hooks/useIsPhone';
 import { CollectionCard } from './CollectionCard';
 import { PageHeader } from './PageHeader';
 import { TagFilterPicker } from './TagFilterPicker';
@@ -103,6 +104,7 @@ export function CollectionPage({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const jsonFileInputRef = useRef<HTMLInputElement>(null);
   const confirm = useConfirm();
+  const phone = useIsPhone();
 
   useEffect(() => {
     if (!ioMenuOpen) return;
@@ -236,7 +238,7 @@ export function CollectionPage({
   const otherCount = collection.filter((c) => c.section === otherSection).length;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+    <div className="max-w-7xl mx-auto px-4 py-4 sm:py-8">
       <PageHeader
         title="Collection"
         actions={
@@ -479,11 +481,12 @@ export function CollectionPage({
       )}
 
       {sorted.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+        <div className={phone ? 'flex flex-col gap-2' : 'grid grid-cols-3 gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'}>
           {sorted.map((entry) => (
             <CollectionCard
               key={entry.anilistId}
               entry={entry}
+              layout={phone ? 'row' : 'card'}
               favorited={inSection(entry.anilistId, 'favorites')}
               interested={inSection(entry.anilistId, 'interested')}
               onToggleFavorite={() => void toggleSection(entry, 'favorites')}
