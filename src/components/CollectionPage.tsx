@@ -18,40 +18,15 @@ import type {
   CollectionSort,
   DiscoverItem,
   ScheduleProgress,
-  WatchStatus,
 } from '@/lib/types';
-import {
-  WATCH_STATUSES,
-  WATCH_STATUS_CLASS,
-  WATCH_STATUS_SHORT,
-} from '@/lib/utils';
-import { BTN_PRIMARY, EYEBROW, FIELD, MENU, pillClass } from '@/lib/ui';
+import { BTN_PRIMARY, EYEBROW, FIELD, MENU } from '@/lib/ui';
+import { compareReleaseDate } from '@/lib/utils';
 import { CollectionCard } from './CollectionCard';
 import { PageHeader } from './PageHeader';
 import { TagFilterPicker } from './TagFilterPicker';
 import { AddToCollectionModal } from './AddToCollectionModal';
 import { useConfirm } from './ConfirmDialog';
-
-/** Extra "filter bucket" for entries that aren't on the schedule (or are on
- *  the schedule but have never been touched — same end-user meaning). */
-const UNTRACKED = 'UNTRACKED' as const;
-type StatusFilter = WatchStatus | typeof UNTRACKED;
-
-const STATUS_FILTER_OPTIONS: StatusFilter[] = [...WATCH_STATUSES, UNTRACKED];
-
-const STATUS_FILTER_LABEL: Record<StatusFilter, string> = {
-  WATCHING: WATCH_STATUS_SHORT.WATCHING,
-  COMPLETED: WATCH_STATUS_SHORT.COMPLETED,
-  DROPPED: WATCH_STATUS_SHORT.DROPPED,
-  ON_HOLD: WATCH_STATUS_SHORT.ON_HOLD,
-  PLAN: WATCH_STATUS_SHORT.PLAN,
-  UNTRACKED: 'Untracked',
-};
-
-const STATUS_FILTER_CLASS: Record<StatusFilter, string> = {
-  ...WATCH_STATUS_CLASS,
-  UNTRACKED: 'bg-zinc-800/70 text-zinc-300 border-zinc-700',
-};
+import { passesStatusFilter, StatusFilterPills, type StatusFilter } from './StatusFilter';
 
 interface Props {
   section: CollectionSection;
@@ -72,16 +47,6 @@ interface Props {
   onUpdateProgress?: (anilistId: number, next: ScheduleProgress) => void;
   /** Set / clear the user's personal 1–5 rating for the collection item. */
   onSetUserScore?: (anilistId: number, score: number | null) => void;
-}
-
-function compareReleaseDateAsc(a: CollectionEntry, b: CollectionEntry) {
-  const ya = a.startDate?.year ?? 9999;
-  const yb = b.startDate?.year ?? 9999;
-  if (ya !== yb) return ya - yb;
-  const ma = a.startDate?.month ?? 12;
-  const mb = b.startDate?.month ?? 12;
-  if (ma !== mb) return ma - mb;
-  return (a.startDate?.day ?? 31) - (b.startDate?.day ?? 31);
 }
 
 export function CollectionPage({
@@ -199,23 +164,18 @@ export function CollectionPage({
     const tagSet = new Set(selectedTags);
     filtered = filtered.filter((c) => c.tags.some((t) => tagSet.has(t)));
   }
-  // Filter by selected watch statuses (any match). UNTRACKED matches anything
-  // that doesn't show up in the schedule progress map OR is there but with no
-  // watchStatus assigned yet.
-  if (selectedStatuses.size > 0) {
-    filtered = filtered.filter((c) => {
-      const ws = progressByAnilistId?.get(c.anilistId)?.watchStatus;
-      const bucket: StatusFilter = ws ?? UNTRACKED;
-      return selectedStatuses.has(bucket);
-    });
-  }
+  // Filter by selected watch statuses (any match). Untracked: not on the
+  // schedule, or there with no status yet.
+  filtered = filtered.filter((c) =>
+    passesStatusFilter(progressByAnilistId?.get(c.anilistId)?.watchStatus, selectedStatuses),
+  );
 
   const sorted = [...filtered].sort((a, b) => {
     switch (sort) {
       case 'RELEASED_NEW':
-        return compareReleaseDateAsc(b, a);
+        return compareReleaseDate(b, a);
       case 'RELEASED_OLD':
-        return compareReleaseDateAsc(a, b);
+        return compareReleaseDate(a, b);
       case 'ADDED_NEW':
         return b.addedAt - a.addedAt;
       case 'ADDED_OLD':
@@ -474,48 +434,11 @@ export function CollectionPage({
                 <option value="SCORE_DESC">Your score (high → low)</option>
               </select>
               <span className="mx-1 hidden h-5 border-l border-zinc-800 sm:block" aria-hidden />
-              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Watch status">
-                {STATUS_FILTER_OPTIONS.map((s) => {
-                  const active = selectedStatuses.has(s);
-                  const n = sectionItems.filter(
-                    (c) => (progressByAnilistId?.get(c.anilistId)?.watchStatus ?? UNTRACKED) === s,
-                  ).length;
-                  if (n === 0 && !active) return null;
-                  return (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() =>
-                        setSelectedStatuses((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(s)) next.delete(s);
-                          else next.add(s);
-                          return next;
-                        })
-                      }
-                      className={
-                        active
-                          ? `inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs font-medium ${STATUS_FILTER_CLASS[s]}`
-                          : pillClass(false)
-                      }
-                      aria-pressed={active}
-                      title={`Filter by ${STATUS_FILTER_LABEL[s]}`}
-                    >
-                      {STATUS_FILTER_LABEL[s]} <span className="tabular-nums opacity-60">{n}</span>
-                    </button>
-                  );
-                })}
-                {selectedStatuses.size > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedStatuses(new Set())}
-                    className="px-2 text-xs text-zinc-500 hover:text-zinc-300"
-                    title="Clear status filter"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
+              <StatusFilterPills
+                statuses={sectionItems.map((c) => progressByAnilistId?.get(c.anilistId)?.watchStatus)}
+                selected={selectedStatuses}
+                onChange={setSelectedStatuses}
+              />
             </div>
             <div className="flex items-start gap-3">
               <span className={`${EYEBROW} pt-1.5`}>Tags</span>

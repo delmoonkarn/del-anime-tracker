@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import type { AnimeEntry, StreamLink } from './types';
 import { mergeLinks, type Brand } from './streamLinks';
 
@@ -31,6 +31,52 @@ export const NavProvider = NavContext.Provider;
 
 export function useOpenDetail() {
   return useContext(NavContext).openDetail;
+}
+
+/** The AniList page for a show. H cards open this instead of the detail
+ *  page, whose buttons would add the show to your main lists. */
+export function anilistUrl(anilistId: number): string {
+  return `https://anilist.co/anime/${anilistId}`;
+}
+
+/** A card's poster or title: opens the show's detail page, or `url` in a new tab. */
+export function ShowLink({
+  anilistId,
+  url,
+  className,
+  label,
+  title,
+  tabIndex,
+  children,
+}: {
+  anilistId: number;
+  url?: string;
+  className?: string;
+  label?: string;
+  title?: string;
+  tabIndex?: number;
+  children: ReactNode;
+}) {
+  const openDetail = useOpenDetail();
+  if (url) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className={className} aria-label={label} title={title} tabIndex={tabIndex}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => anilistId > 0 && openDetail(anilistId)}
+      className={className}
+      aria-label={label}
+      title={title}
+      tabIndex={tabIndex}
+    >
+      {children}
+    </button>
+  );
 }
 
 const NO_LINKS: StreamLink[] = [];

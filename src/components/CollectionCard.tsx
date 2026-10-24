@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { Bookmark, Heart, Minus, MoreVertical, Plus, Trash2, Tv } from 'lucide-react';
 import type { CollectionEntry, ScheduleProgress } from '@/lib/types';
-import { useOpenDetail, useWatchLinks } from '@/lib/nav';
+import { ShowLink, useWatchLinks } from '@/lib/nav';
 import { BTN_ICON, FORMAT_LABEL, MENU, MENU_ITEM, POSTER_ICON, SURFACE } from '@/lib/ui';
 import { nextProgressOnDec, nextProgressOnInc, nextProgressOnSetStatus } from '@/lib/utils';
 import { useClickOutside } from '@/hooks/useClickOutside';
@@ -10,17 +10,21 @@ import { UserScorePill } from './UserScorePill';
 import { ServiceLinks } from './ServiceLogo';
 
 interface Props {
-  entry: CollectionEntry;
+  /** A Collection show or an H favorite. */
+  entry: Pick<CollectionEntry, 'anilistId' | 'title' | 'imageUrl' | 'format' | 'episodes' | 'startDate'>;
   favorited: boolean;
-  interested: boolean;
+  interested?: boolean;
   onToggleFavorite: () => void;
-  onToggleInterested: () => void;
+  /** Without it (H favorites, which have no Interested list) the menu only offers Remove. */
+  onToggleInterested?: () => void;
   /** Removes the entry from the section being viewed (asks first). */
   onRemove: () => void;
   progress: ScheduleProgress;
   onUpdateProgress?: (next: ScheduleProgress) => void;
   userScore?: number;
   onSetUserScore?: (score: number | null) => void;
+  /** Opens this page in a new tab instead of the show's detail page. */
+  openUrl?: string;
 }
 
 
@@ -30,7 +34,7 @@ interface Props {
 export function CollectionCard({
   entry,
   favorited,
-  interested,
+  interested = false,
   onToggleFavorite,
   onToggleInterested,
   onRemove,
@@ -38,10 +42,9 @@ export function CollectionCard({
   onUpdateProgress,
   userScore,
   onSetUserScore,
+  openUrl,
 }: Props) {
-  const openDetail = useOpenDetail();
   const links = useWatchLinks(entry.anilistId);
-  const canOpen = entry.anilistId > 0;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
@@ -64,11 +67,11 @@ export function CollectionCard({
     >
       {/* Only the poster is clipped, so menus can spill past the card. */}
       <div className="relative overflow-hidden rounded-t-xl">
-        <button
-          type="button"
-          onClick={() => canOpen && openDetail(entry.anilistId)}
+        <ShowLink
+          anilistId={entry.anilistId}
+          url={openUrl}
           className="block aspect-[2/3] w-full overflow-hidden bg-zinc-800"
-          aria-label={`Open ${entry.title}`}
+          label={`Open ${entry.title}`}
           tabIndex={-1}
         >
           {entry.imageUrl ? (
@@ -81,7 +84,7 @@ export function CollectionCard({
           ) : (
             <Tv className="m-auto h-8 w-8 text-zinc-600" />
           )}
-        </button>
+        </ShowLink>
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-end gap-1.5 p-2">
           {interested && (
             <button
@@ -112,14 +115,14 @@ export function CollectionCard({
 
       <div className="flex flex-1 flex-col gap-1.5 p-3">
         <h3 className="text-sm font-semibold leading-snug">
-          <button
-            type="button"
-            onClick={() => canOpen && openDetail(entry.anilistId)}
+          <ShowLink
+            anilistId={entry.anilistId}
+            url={openUrl}
             className="line-clamp-2 text-left hover:text-indigo-300"
             title={entry.title}
           >
             {entry.title}
-          </button>
+          </ShowLink>
         </h3>
         <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-zinc-400">
           {meta.map((m, i) => (
@@ -185,28 +188,32 @@ export function CollectionCard({
             {menuOpen && (
               // Opens upward so the next row of cards can't cover it.
               <div className={`${MENU} absolute bottom-full right-0 mb-1 w-40 p-1 text-sm`}>
-                <button
-                  type="button"
-                  className={`${MENU_ITEM} ${favorited ? 'text-rose-300' : ''}`}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onToggleFavorite();
-                  }}
-                >
-                  <Heart className={`h-3.5 w-3.5 ${favorited ? 'fill-current' : ''}`} />
-                  {favorited ? 'Unfavorite' : 'Favorite'}
-                </button>
-                <button
-                  type="button"
-                  className={`${MENU_ITEM} ${interested ? 'text-sky-300' : ''}`}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onToggleInterested();
-                  }}
-                >
-                  <Bookmark className={`h-3.5 w-3.5 ${interested ? 'fill-current' : ''}`} />
-                  {interested ? 'Not interested' : 'Mark interested'}
-                </button>
+                {onToggleInterested && (
+                  <>
+                    <button
+                      type="button"
+                      className={`${MENU_ITEM} ${favorited ? 'text-rose-300' : ''}`}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onToggleFavorite();
+                      }}
+                    >
+                      <Heart className={`h-3.5 w-3.5 ${favorited ? 'fill-current' : ''}`} />
+                      {favorited ? 'Unfavorite' : 'Favorite'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`${MENU_ITEM} ${interested ? 'text-sky-300' : ''}`}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onToggleInterested();
+                      }}
+                    >
+                      <Bookmark className={`h-3.5 w-3.5 ${interested ? 'fill-current' : ''}`} />
+                      {interested ? 'Not interested' : 'Mark interested'}
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
                   className={`${MENU_ITEM} text-red-300`}

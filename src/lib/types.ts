@@ -195,8 +195,14 @@ export type AppView =
 export type SettingsTab = 'account' | 'backup';
 
 /** H favorites live in their own DB table — separate from CollectionEntry. */
-export interface HFavoriteEntry extends DiscoverItem {
+/** An H favorite: tracked like a Collection show (status, episodes, your
+ *  score), kept apart from the Collection. */
+export interface HFavoriteEntry extends Omit<DiscoverItem, 'description' | 'averageScore' | 'status'> {
   addedAt: number;
+  watchStatus?: WatchStatus;
+  episodesWatched?: number;
+  /** Your own 1–5 rating. */
+  userScore?: number;
 }
 
 export type CollectionSection = 'favorites' | 'interested';

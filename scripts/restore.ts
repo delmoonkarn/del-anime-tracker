@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import { DATA_TABLES } from '../server/backup';
+import { DATA_TABLES, parseBackup, restoreBackup } from '../server/backup';
 import { openSqlite } from '../server/sqlite';
 
 let file: string | undefined;
@@ -64,8 +64,9 @@ if (existsSync(target)) {
   console.log(`[restore] current database copied to ${copy}`);
 }
 
+// The same checks and loading as Settings > Restore from backup.
 const local = openSqlite(target);
-local.exec(sql);
+await restoreBackup(local.db, parseBackup(sql));
 const counts = await Promise.all(
   DATA_TABLES.map(async ({ table }) => `${table} ${(await local.db.first<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`))?.n}`),
 );

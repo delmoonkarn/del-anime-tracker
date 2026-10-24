@@ -17,7 +17,7 @@
 // UPDATEs that each fit.
 
 import { sendEmail, type EmailConfig } from './email';
-import { sql, type SqlDb } from './sql';
+import { sql, type SqlDb, type SqlStatement } from './sql';
 
 export interface BackupTable {
   table: string;
@@ -225,9 +225,77 @@ export function parseBackup(text: string): ParsedBackup {
   return { statements, rows, madeAt };
 }
 
-/** Replaces the tracker data with the backup's, in one transaction. */
+/**
+ * Replaces the tracker data with the backup's, in one transaction. A backup
+ * from an older version can hold columns that have since been dropped
+ * (migrations/); their values are left out.
+ */
 export async function restoreBackup(db: SqlDb, backup: ParsedBackup): Promise<void> {
-  await db.batch(backup.statements.map((s) => sql(s)));
+  const columns = await currentColumns(db);
+  const statements: SqlStatement[] = [];
+  for (const s of backup.statements) {
+    const fitted = fitToColumns(s, columns);
+    if (fitted) statements.push(sql(fitted));
+  }
+  await db.batch(statements);
+}
+
+/** Each data table's columns as they are now, in one query (a join: D1 caps UNION ALL chains). */
+async function currentColumns(db: SqlDb): Promise<Map<string, Set<string>>> {
+  const rows = await db.all<{ t: string; name: string }>(
+    'SELECT j.value AS t, p.name AS name FROM json_each(?) AS j, pragma_table_info(j.value) AS p',
+    JSON.stringify(DATA_TABLES.map((t) => t.table)),
+  );
+  const out = new Map<string, Set<string>>();
+  for (const r of rows) {
+    let set = out.get(r.t);
+    if (!set) out.set(r.t, (set = new Set()));
+    set.add(r.name);
+  }
+  return out;
+}
+
+const INSERT_HEAD = /^INSERT INTO (\w+) \(([^)]*)\) VALUES \(/;
+const UPDATE_HEAD = /^UPDATE (\w+) SET (\w+) = /;
+
+/** The statement without dropped columns, or null when it only fills one (a long value's pieces). */
+function fitToColumns(statement: string, columns: Map<string, Set<string>>): string | null {
+  const insert = INSERT_HEAD.exec(statement);
+  if (insert) {
+    const have = columns.get(insert[1]);
+    const cols = insert[2].split(',').map((c) => c.trim());
+    if (!have || cols.every((c) => have.has(c))) return statement;
+    const values = splitValues(statement.slice(insert[0].length, -1));
+    const keep = cols.map((c) => have.has(c));
+    const pick = <T,>(list: T[]) => list.filter((_, i) => keep[i]).join(', ');
+    return `INSERT INTO ${insert[1]} (${pick(cols)}) VALUES (${pick(values)})`;
+  }
+  const update = UPDATE_HEAD.exec(statement);
+  if (update && !columns.get(update[1])?.has(update[2])) return null;
+  return statement;
+}
+
+/** An INSERT's values, split at the commas outside quoted text. */
+function splitValues(text: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  let i = 0;
+  for (;;) {
+    const comma = text.indexOf(',', i);
+    const quote = text.indexOf("'", i);
+    if (quote >= 0 && (comma < 0 || quote < comma)) {
+      const close = text.indexOf("'", quote + 1);
+      if (close < 0) throw new BackupFileError('The file ends partway through. Is it the whole backup?');
+      i = close + 1;
+      continue;
+    }
+    if (comma < 0) {
+      out.push(text.slice(start).trim());
+      return out;
+    }
+    out.push(text.slice(start, comma).trim());
+    i = start = comma + 1;
+  }
 }
 
 // ---- Email -----------------------------------------------------------------

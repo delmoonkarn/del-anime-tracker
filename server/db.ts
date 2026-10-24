@@ -286,14 +286,31 @@ const COLLECTION: TableSpec = {
   ],
   key: ['anilist_id', 'section'],
 };
-// The progress columns the collection owns. total_episodes / next_airing_*
-// belong to the schedule and are left as they are.
-const COLLECTION_PROGRESS: TableSpec = {
+// The progress columns the Collection and H favorites own. total_episodes /
+// next_airing_* belong to the schedule and are left as they are.
+const LIST_PROGRESS: TableSpec = {
   table: 'anime_progress',
   cols: ['anilist_id', 'watch_status', 'episodes_watched', 'user_score', 'updated_at'],
   key: ['anilist_id'],
   touch: ['updated_at'],
 };
+
+/** LIST_PROGRESS rows for a Collection / H favorites save, one per show. */
+function listProgressRows(
+  items: { anilistId: number; watchStatus?: WatchStatus; episodesWatched?: number; userScore?: number }[],
+): SqlValue[][] {
+  // The same show can be in Favorites and Interested; App keeps both copies
+  // identical, so one row is enough.
+  const now = Date.now();
+  const seen = new Set<number>();
+  const rows: SqlValue[][] = [];
+  for (const e of items) {
+    if (!e.anilistId || e.anilistId <= 0 || seen.has(e.anilistId)) continue;
+    seen.add(e.anilistId);
+    rows.push([e.anilistId, e.watchStatus ?? null, e.episodesWatched ?? null, e.userScore ?? null, now]);
+  }
+  return rows;
+}
 
 function rowToCollectionEntry(r: CollectionRow): CollectionEntry {
   const startDate =
@@ -353,22 +370,12 @@ async function writeCollection(db: SqlDb, items: CollectionEntry[]): Promise<num
     e.tagsFull ? 1 : 0,
     position,
   ]);
-  // Persist watch_status / episodes_watched / user_score into anime_progress
-  // so collection-card edits survive a reload. The same anilist_id can
-  // appear twice (Favorites + Interested); broadcast keeps them identical,
-  // so we dedupe to avoid two redundant upserts.
-  const now = Date.now();
-  const seen = new Set<number>();
-  const progress: SqlValue[][] = [];
-  for (const e of items) {
-    if (!e.anilistId || e.anilistId <= 0 || seen.has(e.anilistId)) continue;
-    seen.add(e.anilistId);
-    progress.push([e.anilistId, e.watchStatus ?? null, e.episodesWatched ?? null, e.userScore ?? null, now]);
-  }
+  // Watch status, episodes and score go to anime_progress, shared with the
+  // schedule, so collection-card edits survive a reload.
   return db.batch([
     deleteRowsNotIn(COLLECTION, rows),
     ...upsertRows(COLLECTION, rows),
-    ...upsertRows(COLLECTION_PROGRESS, progress),
+    ...upsertRows(LIST_PROGRESS, listProgressRows(items)),
   ]);
 }
 
@@ -562,34 +569,45 @@ async function writeKv(db: SqlDb, key: string, value: unknown): Promise<number> 
 }
 
 // ---- H favorites -----------------------------------------------------
+//
+// Kept apart from the Collection, but tracked the same way: watch status,
+// episodes and your score live in anime_progress.
 
 interface HFavoriteRow {
   anilist_id: number;
   title: string;
   title_english: string | null;
   image_url: string | null;
-  description: string | null;
   tags_json: string | null;
   format: string | null;
   episodes: number | null;
-  average_score: number | null;
   start_year: number | null;
   start_month: number | null;
   start_day: number | null;
   added_at: number;
+  watch_status: string | null;
+  episodes_watched: number | null;
+  user_score: number | null;
 }
 
 const H_FAVORITES: TableSpec = {
   table: 'h_favorites',
   cols: [
-    'anilist_id', 'title', 'title_english', 'image_url', 'description', 'tags_json', 'format',
-    'episodes', 'average_score', 'start_year', 'start_month', 'start_day', 'added_at',
+    'anilist_id', 'title', 'title_english', 'image_url', 'tags_json', 'format', 'episodes',
+    'start_year', 'start_month', 'start_day', 'added_at',
   ],
   key: ['anilist_id'],
 };
 
 async function readHFavorites(db: SqlDb): Promise<HFavoriteEntry[]> {
-  const rows = await db.all<HFavoriteRow>('SELECT * FROM h_favorites ORDER BY added_at DESC');
+  const rows = await db.all<HFavoriteRow>(
+    `SELECT h.anilist_id, h.title, h.title_english, h.image_url, h.tags_json, h.format, h.episodes,
+            h.start_year, h.start_month, h.start_day, h.added_at,
+            ap.watch_status, ap.episodes_watched, ap.user_score
+     FROM h_favorites h
+     LEFT JOIN anime_progress ap ON ap.anilist_id = h.anilist_id
+     ORDER BY h.added_at DESC`,
+  );
   return rows.map((r) => {
     const startDate =
       r.start_year != null || r.start_month != null || r.start_day != null
@@ -600,13 +618,14 @@ async function readHFavorites(db: SqlDb): Promise<HFavoriteEntry[]> {
       title: r.title,
       titleEnglish: r.title_english ?? undefined,
       imageUrl: r.image_url ?? '',
-      description: r.description ?? undefined,
       tags: r.tags_json ? JSON.parse(r.tags_json) : [],
       format: r.format ?? undefined,
       episodes: r.episodes ?? undefined,
-      averageScore: r.average_score ?? undefined,
       startDate,
       addedAt: r.added_at,
+      watchStatus: (r.watch_status as WatchStatus | null) ?? undefined,
+      episodesWatched: r.episodes_watched ?? undefined,
+      userScore: r.user_score ?? undefined,
     };
   });
 }
@@ -617,17 +636,19 @@ async function writeHFavorites(db: SqlDb, items: HFavoriteEntry[]): Promise<numb
     e.title,
     e.titleEnglish ?? null,
     e.imageUrl ?? null,
-    e.description ?? null,
     JSON.stringify(e.tags ?? []),
     e.format ?? null,
     e.episodes ?? null,
-    e.averageScore ?? null,
     e.startDate?.year ?? null,
     e.startDate?.month ?? null,
     e.startDate?.day ?? null,
     e.addedAt,
   ]);
-  return db.batch([deleteRowsNotIn(H_FAVORITES, rows), ...upsertRows(H_FAVORITES, rows)]);
+  return db.batch([
+    deleteRowsNotIn(H_FAVORITES, rows),
+    ...upsertRows(H_FAVORITES, rows),
+    ...upsertRows(LIST_PROGRESS, listProgressRows(items)),
+  ]);
 }
 
 // ---- Public router for the API route --------------------------------------

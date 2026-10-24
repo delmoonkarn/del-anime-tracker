@@ -688,13 +688,15 @@ export function DiscoverPage({
                 <ExploreCard
                   key={item.anilistId}
                   item={item}
-                  seasonName={target}
-                  added={isAddedTo(item.anilistId, target)}
-                  onAdd={() => onAdd(item, target)}
                   favorited={isFavorited(item.anilistId)}
-                  interested={isInterested(item.anilistId)}
                   onToggleFavorite={() => onToggleFavorite(item)}
-                  onToggleInterested={() => onToggleInterested(item)}
+                  list={{
+                    seasonName: target,
+                    added: isAddedTo(item.anilistId, target),
+                    onAdd: () => onAdd(item, target),
+                    interested: isInterested(item.anilistId),
+                    onToggleInterested: () => onToggleInterested(item),
+                  }}
                 />,
               );
             }

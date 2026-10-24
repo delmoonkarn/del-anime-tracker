@@ -709,14 +709,20 @@ export function App() {
     anilistId > 0 && hFavIds.has(anilistId);
 
   const addHFavorite = (item: DiscoverItem) => {
+    // AniList's synopsis, score and airing status aren't kept (HFavoriteEntry).
+    const { description: _d, averageScore: _s, status: _st, ...show } = item;
     setHFavorites((prev) => {
       if (prev.some((h) => h.anilistId === item.anilistId)) return prev;
-      return [...prev, { ...item, addedAt: Date.now() }];
+      return [...prev, { ...show, addedAt: Date.now() }];
     });
   };
 
   const removeHFavorite = (anilistId: number) => {
     setHFavorites((prev) => prev.filter((h) => h.anilistId !== anilistId));
+  };
+
+  const updateHFavorite = (anilistId: number, change: Partial<HFavoriteEntry>) => {
+    setHFavorites((prev) => prev.map((h) => (h.anilistId === anilistId ? { ...h, ...change } : h)));
   };
 
   // ---- Collection (favorites + interested) ----
@@ -1471,6 +1477,10 @@ export function App() {
         <HFavoritesPage
           items={hFavorites}
           onRemove={removeHFavorite}
+          onUpdateProgress={(id, next) =>
+            updateHFavorite(id, { watchStatus: next.watchStatus, episodesWatched: next.episodesWatched })
+          }
+          onSetUserScore={(id, score) => updateHFavorite(id, { userScore: score ?? undefined })}
           onBack={() => goTo('discover-h')}
         />
       ) : view === 'collection-favorites' || view === 'collection-interested' ? (

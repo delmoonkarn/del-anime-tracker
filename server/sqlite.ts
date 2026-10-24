@@ -9,8 +9,6 @@ import type { SqlDb, SqlStatement } from './sql';
 
 export interface LocalDb {
   db: SqlDb;
-  /** Runs a whole SQL script (a backup file) as one transaction. */
-  exec(script: string): void;
   /** Saves a consistent copy of the database (including anything still in the WAL) to `path`. */
   copyTo(path: string): Promise<void>;
   close(): void;
@@ -59,9 +57,6 @@ export function openSqlite(dbPath: string, { readonly = false } = {}): LocalDb {
       async batch(statements: SqlStatement[]) {
         return statements.length ? runBatch(statements) : 0;
       },
-    },
-    exec(script: string) {
-      db.transaction(() => db.exec(script))();
     },
     async copyTo(path: string) {
       await db.backup(path);

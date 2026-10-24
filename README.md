@@ -23,7 +23,8 @@ Personal seasonal anime tracker with AniList integration. Tracks watch progress,
 - Explore anime by season via AniList, with format / tag / streaming-service filters
 - Detail page per show: progress, where to watch, facts, prequel & sequel, synopsis, trailer
 - Where to watch: your own streaming links per show (several per show) plus AniList's streaming links (cached, refreshed weekly), shown as channel icons on the posters
-- Favorites and Interested collections
+- Favorites and Interested collections, tracked like the schedule (status, episodes, your 1–5 score)
+- H section (18+): its own Explore page and favorites, kept apart from everything else
 - Global AniList search from the header (press `/`)
 - Excel import/export of your schedule and collection
 - Backups as plain `.sql` files: download or restore from Settings, or get one emailed every month
@@ -249,6 +250,7 @@ Then open the site straight away and create the account again (with the setup co
 
 - It replaces your tracker data with the backup's. Your account and settings stay as they are.
 - It loads all of the file or, if anything goes wrong, none of it.
+- Backups from older versions work too: values for columns that no longer exist are skipped.
 - On your PC, the data you had is first copied to `data/anime-tracker.before-restore-<time>.db`.
 - Close the tracker on your other devices first. An open tab still holds the old data and would save it back over the restore.
 
@@ -273,7 +275,6 @@ npx wrangler d1 time-travel restore anime-tracker --timestamp=2026-11-01T12:00:0
 | **Send a backup now** fails with `... API key is invalid` (or another `Resend: HTTP 401` / `403`) | The key is wrong or was deleted: create a new one with Sending access and paste it in Settings. |
 | The monthly email didn't arrive | Check spam. Settings shows the last attempt and any error. It's sent at the time in `crons` (UTC). |
 | Restore says the file **isn't an Anime Tracker backup** | Pick a `.sql` file that came from **Download backup** or a backup email. |
-| Restore says **has no column named …** | The backup is from an older version whose tables were different. Use a newer backup. |
 | The PC version won't start: port 3001 is in use | Another copy is already running; close its window (or use the tab that's already open). |
 
 ## Limits and costs

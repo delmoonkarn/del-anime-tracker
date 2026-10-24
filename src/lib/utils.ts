@@ -1,4 +1,15 @@
-import type { AnimeEntry, AnimeSeason, AnimeSeasonRef, DayOfWeek, WatchStatus } from './types';
+import type { AnimeEntry, AnimeSeason, AnimeSeasonRef, DayOfWeek, ReleaseDate, WatchStatus } from './types';
+
+/** Earlier release first, for sorting lists; unknown parts sort last. */
+export function compareReleaseDate(a: { startDate?: ReleaseDate | null }, b: { startDate?: ReleaseDate | null }): number {
+  const ya = a.startDate?.year ?? 9999;
+  const yb = b.startDate?.year ?? 9999;
+  if (ya !== yb) return ya - yb;
+  const ma = a.startDate?.month ?? 12;
+  const mb = b.startDate?.month ?? 12;
+  if (ma !== mb) return ma - mb;
+  return (a.startDate?.day ?? 31) - (b.startDate?.day ?? 31);
+}
 
 export const WATCH_STATUSES: WatchStatus[] = [
   'WATCHING',
