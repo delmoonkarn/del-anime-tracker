@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, Play, RefreshCw, Search, Sparkles, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Play, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import type {
   AnilistTag,
   AnimeSeason,
@@ -47,6 +47,8 @@ const SEASON_LABEL: Record<AnimeSeason, string> = {
   SUMMER: 'Summer',
   FALL: 'Fall',
 };
+
+const SEASON_ORDER: AnimeSeason[] = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
 
 /** Calendar-rotation next: WINTER → SPRING → SUMMER → FALL → WINTER. */
 const NEXT_SEASON: Record<AnimeSeason, AnimeSeason> = {
@@ -434,6 +436,25 @@ export function DiscoverPage({
   const yearOptions: number[] = [];
   for (let y = defaultRef.year + 5; y >= 1940; y--) yearOptions.push(y);
 
+  /** The ‹ › buttons: one season back or forward (crossing years), or one
+   *  year when "All year" is picked. */
+  const step = (dir: -1 | 1) => {
+    let year = selectedYear;
+    let season = selectedSeason;
+    if (season) {
+      const i = SEASON_ORDER.indexOf(season) + dir;
+      season = SEASON_ORDER[(i + 4) % 4];
+      if (i < 0) year -= 1;
+      if (i > 3) year += 1;
+    } else {
+      year += dir;
+    }
+    if (year < yearOptions[yearOptions.length - 1] || year > yearOptions[0]) return;
+    setSelectedSeason(season);
+    setSelectedYear(year);
+  };
+  const stepLabel = (dir: -1 | 1) => (selectedSeason ? `${dir < 0 ? 'Previous' : 'Next'} season` : `${dir < 0 ? 'Previous' : 'Next'} year`);
+
   // Streaming services the listed shows are on — your links plus AniList's
   // (search-aware, like the format pills), with one sample link each for the logo.
   const serviceCounts = new Map<string, number>();
@@ -468,6 +489,20 @@ export function DiscoverPage({
         title={
           <>
             {selectedSeason ? selectedName : `All of ${selectedYear}`}
+            {!isSelectionCurrentSeason && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSeason(defaultRef.season);
+                  setSelectedYear(defaultRef.year);
+                }}
+                className="inline-flex h-7 items-center gap-1 rounded-full border border-zinc-700 px-2.5 text-xs font-medium tracking-normal text-zinc-300 hover:border-indigo-500 hover:text-indigo-300"
+                title={`Back to ${defaultRef.name}`}
+              >
+                <Sparkles className="h-3 w-3" />
+                Today
+              </button>
+            )}
             {isSelectionCurrentSeason && (
               <span
                 className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-300"
@@ -503,6 +538,9 @@ export function DiscoverPage({
         }
       >
         <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => step(-1)} className={BTN_ICON} title={stepLabel(-1)} aria-label={stepLabel(-1)}>
+            <ChevronLeft className="h-4 w-4" />
+          </button>
           <select
             value={selectedSeason ?? ''}
             onChange={(e) =>
@@ -540,18 +578,9 @@ export function DiscoverPage({
               </option>
             ))}
           </select>
-          {!isSelectionCurrentSeason && (
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedSeason(defaultRef.season);
-                setSelectedYear(defaultRef.year);
-              }}
-              className="h-8 rounded-lg px-2.5 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-indigo-300"
-            >
-              Today ({defaultRef.name})
-            </button>
-          )}
+          <button type="button" onClick={() => step(1)} className={BTN_ICON} title={stepLabel(1)} aria-label={stepLabel(1)}>
+            <ChevronRight className="h-4 w-4" />
+          </button>
           <ServiceFilter
             list={serviceList}
             logos={serviceLogo}

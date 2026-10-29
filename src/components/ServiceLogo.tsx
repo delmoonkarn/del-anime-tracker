@@ -78,7 +78,8 @@ export function ServiceLinks({
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="shadow-md ring-1 ring-black/30 transition-transform hover:scale-110"
+          // flex: an inline logo would leave a text line's descender gap below it.
+          className="flex shadow-md ring-1 ring-black/30 transition-transform hover:scale-110"
           aria-label={`Watch ${title} on ${l.site}`}
           title={`Watch on ${l.site}`}
         >
