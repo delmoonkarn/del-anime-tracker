@@ -15,9 +15,6 @@ import type {
   CollectionEntry,
   CollectionSection,
   DayOfWeek,
-  DiscoverCache,
-  DiscoverCacheEntry,
-  DiscoverItem,
   HFavoriteEntry,
   HPrefs,
   Season,
@@ -484,71 +481,6 @@ async function writeAnilistLinks(db: SqlDb, map: AnilistLinksCache): Promise<num
   return db.batch([deleteRowsNotIn(ANILIST_LINKS, rows), ...upsertRows(ANILIST_LINKS, rows)]);
 }
 
-// ---- Discover cache -------------------------------------------------------
-
-interface DiscoverRow {
-  id: number;
-  season: string;
-  year: number;
-  tags_json: string;
-  fetched_at: number;
-  items_json: string;
-}
-
-async function readDiscoverCache(db: SqlDb): Promise<DiscoverCache> {
-  const rows = await db.all<DiscoverRow>('SELECT * FROM discover_cache ORDER BY fetched_at DESC');
-  const entries: DiscoverCacheEntry[] = rows.map((r) => ({
-    // 'ALL' is the sentinel for "no season filter (full year)". The column
-    // is NOT NULL so we can't store SQL null without a table rebuild.
-    season: (r.season === 'ALL' ? null : r.season) as DiscoverCacheEntry['season'],
-    year: r.year,
-    tags: JSON.parse(r.tags_json) as string[],
-    fetchedAt: r.fetched_at,
-    items: JSON.parse(r.items_json) as DiscoverItem[],
-  }));
-  return { entries };
-}
-
-async function writeDiscoverCache(db: SqlDb, cache: DiscoverCache): Promise<number> {
-  // Entries are replaced, never edited: each incoming entry is either stored
-  // exactly as it is already, or new. Rows no entry claimed are dropped.
-  const unclaimed = new Map((await db.all<DiscoverRow>('SELECT * FROM discover_cache')).map((r) => [r.id, r]));
-  const inserts: SqlStatement[] = [];
-  for (const e of cache.entries) {
-    const season = e.season ?? 'ALL';
-    const tags = JSON.stringify(e.tags);
-    const items = JSON.stringify(e.items);
-    const match = [...unclaimed.values()].find(
-      (r) =>
-        r.season === season &&
-        r.year === e.year &&
-        r.tags_json === tags &&
-        r.fetched_at === e.fetchedAt &&
-        r.items_json === items,
-    );
-    if (match) {
-      unclaimed.delete(match.id);
-      continue;
-    }
-    inserts.push(
-      sql(
-        `INSERT INTO discover_cache (season, year, tags_json, fetched_at, items_json)
-         VALUES (?, ?, ?, ?, ?)`,
-        season,
-        e.year,
-        tags,
-        e.fetchedAt,
-        items,
-      ),
-    );
-  }
-  if (unclaimed.size === 0 && inserts.length === 0) return 0;
-  return db.batch([
-    sql('DELETE FROM discover_cache WHERE id IN (SELECT value FROM json_each(?))', JSON.stringify([...unclaimed.keys()])),
-    ...inserts,
-  ]);
-}
-
 // ---- Simple key-value pairs (tags cache, h prefs) -------------------
 
 async function readKv(db: SqlDb, key: string): Promise<unknown | null> {
@@ -653,7 +585,6 @@ async function writeHFavorites(db: SqlDb, items: HFavoriteEntry[]): Promise<numb
 export type DbKey =
   | 'state'
   | 'collection'
-  | 'discover-cache'
   | 'tags'
   | 'h-prefs'
   | 'h-favorites'
@@ -667,8 +598,6 @@ export async function readByKey(db: SqlDb, key: DbKey): Promise<unknown> {
       return readAppState(db);
     case 'collection':
       return readCollection(db);
-    case 'discover-cache':
-      return readDiscoverCache(db);
     case 'tags':
       return (await readKv(db, 'tags')) as AnilistTag[] | null;
     case 'h-prefs':
@@ -691,8 +620,6 @@ export async function writeByKey(db: SqlDb, key: DbKey, value: unknown): Promise
       return writeAppState(db, value as AppState);
     case 'collection':
       return writeCollection(db, value as CollectionEntry[]);
-    case 'discover-cache':
-      return writeDiscoverCache(db, value as DiscoverCache);
     case 'tags':
       return writeKv(db, 'tags', value);
     case 'h-prefs':

@@ -28,7 +28,6 @@ import { SIGNED_OUT_EVENT } from './auth';
 type StorageKey =
   | 'state'
   | 'collection'
-  | 'discover-cache'
   | 'tags'
   | 'h-prefs'
   | 'h-favorites'
@@ -200,13 +199,30 @@ export function saveCollection(items: CollectionEntry[]): void {
   scheduleSave('collection', items);
 }
 
+// Explore's season lists are AniList's public data, so they're cached in
+// this browser rather than the database: no request to load them, and each
+// device keeps its own. Losing them only means Explore asks AniList again.
+const EXPLORE_CACHE = 'anime-tracker:explore-cache';
+
 export async function loadDiscoverCache(): Promise<DiscoverCache> {
-  const loaded = await readApi<Partial<DiscoverCache>>('discover-cache');
-  return { entries: Array.isArray(loaded?.entries) ? loaded.entries : [] };
+  try {
+    const loaded = JSON.parse(window.localStorage.getItem(EXPLORE_CACHE) ?? 'null') as Partial<DiscoverCache> | null;
+    return { entries: Array.isArray(loaded?.entries) ? loaded.entries : [] };
+  } catch {
+    return { entries: [] };
+  }
 }
 
 export function saveDiscoverCache(cache: DiscoverCache): void {
-  scheduleSave('discover-cache', cache);
+  // Newest first; if the browser is out of room, keep fewer.
+  for (let n = cache.entries.length; n >= 0; n--) {
+    try {
+      window.localStorage.setItem(EXPLORE_CACHE, JSON.stringify({ entries: cache.entries.slice(0, n) }));
+      return;
+    } catch {
+      // Storage full or blocked: try with one entry less.
+    }
+  }
 }
 
 export async function loadTags(): Promise<AnilistTag[] | null> {

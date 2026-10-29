@@ -44,7 +44,6 @@ export const DATA_TABLES: BackupTable[] = [
 /** Derived data; scripts/export-sql.ts copies these too when seeding D1. */
 export const CACHE_TABLES: BackupTable[] = [
   { table: 'anilist_link_cache', key: ['anilist_id'] },
-  { table: 'discover_cache', key: ['id'] },
 ];
 
 /** Every backup's first line starts with this; it's how a restore recognises one. */

@@ -45,7 +45,6 @@ export interface BackupConfig {
 const ALLOWED: ReadonlySet<DbKey> = new Set<DbKey>([
   'state',
   'collection',
-  'discover-cache',
   'tags',
   'h-prefs',
   'h-favorites',
